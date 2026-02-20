@@ -1,26 +1,152 @@
 @import "tailwindcss";
+@config "../../tailwind.config.ts";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 220 20% 98%;
+    --foreground: 228 14% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 228 14% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 228 14% 12%;
+
+    --primary: 228 14% 12%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 98%;
+    --secondary-foreground: 228 14% 12%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 222 10% 60%;
+
+    --accent: 140 87% 45%;
+    --accent-foreground: 228 14% 12%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 140 87% 45%;
+
+    --radius: 0.25rem;
+
+    --sniper-green: 140 87% 45%;
+    --sniper-green-hover: 140 87% 38%;
+    --sniper-charcoal: 228 14% 12%;
+    --sniper-ash: 222 10% 60%;
+    --sniper-pearl: 220 20% 98%;
+    --sniper-surface: 0 0% 100%;
+
+    --status-discovered: 220 14% 96%;
+    --status-discovered-text: 222 10% 60%;
+    --status-pending: 45 93% 47%;
+    --status-pending-text: 45 93% 20%;
+    --status-approved: 140 87% 45%;
+    --status-approved-text: 140 87% 15%;
+    --status-submitted: 217 91% 60%;
+    --status-submitted-text: 217 91% 20%;
+    --status-removed: 140 87% 45%;
+    --status-removed-text: 0 0% 100%;
+    --status-failed: 0 84% 60%;
+    --status-failed-text: 0 0% 100%;
+    --status-whitelisted: 222 10% 60%;
+    --status-whitelisted-text: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 228 14% 12%;
+    --foreground: 220 20% 96%;
+
+    --card: 228 14% 16%;
+    --card-foreground: 220 20% 96%;
+
+    --popover: 228 14% 16%;
+    --popover-foreground: 220 20% 96%;
+
+    --primary: 140 87% 45%;
+    --primary-foreground: 228 14% 12%;
+
+    --secondary: 228 14% 20%;
+    --secondary-foreground: 220 20% 90%;
+
+    --muted: 228 14% 20%;
+    --muted-foreground: 222 10% 55%;
+
+    --accent: 140 87% 45%;
+    --accent-foreground: 228 14% 12%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 228 14% 24%;
+    --input: 228 14% 24%;
+    --ring: 140 87% 45%;
+
+    --status-discovered: 228 14% 20%;
+    --status-discovered-text: 222 10% 70%;
+    --status-pending: 45 93% 30%;
+    --status-pending-text: 45 93% 80%;
+    --status-approved: 140 50% 20%;
+    --status-approved-text: 140 87% 70%;
+    --status-submitted: 217 50% 25%;
+    --status-submitted-text: 217 91% 75%;
+    --status-removed: 140 50% 25%;
+    --status-removed-text: 140 87% 80%;
+    --status-failed: 0 50% 25%;
+    --status-failed-text: 0 84% 75%;
+    --status-whitelisted: 228 14% 30%;
+    --status-whitelisted-text: 222 10% 75%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-heading;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .marketing-status-dot {
+    animation: marketing-status-pulse 1.8s ease-in-out infinite;
+  }
+
+  .audit-watermark {
+    background-image: radial-gradient(rgba(26, 28, 36, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .sniper-focus-ring {
+    box-shadow: 0 0 0 3px rgba(16, 217, 75, 0.25);
+  }
+}
+
+@keyframes marketing-status-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
