@@ -3,20 +3,52 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Mail } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (event: React.FormEvent) => {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("error") === "auth_callback_failed") {
+      setError("Authentication failed. Please request a new magic link.");
+    }
+  }, []);
+
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    setError(null);
     setLoading(true);
-    setTimeout(() => {
+
+    const supabase = createBrowserSupabaseClient();
+
+    if (!supabase) {
       setLoading(false);
-      setSent(true);
-    }, 1100);
+      setError("Supabase is not configured. Check NEXT_PUBLIC_SUPABASE_* variables.");
+      return;
+    }
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${appUrl}/auth/callback?next=/dashboard`,
+        shouldCreateUser: true,
+      },
+    });
+
+    setLoading(false);
+
+    if (otpError) {
+      setError(otpError.message);
+      return;
+    }
+
+    setSent(true);
   };
 
   return (
@@ -31,6 +63,12 @@ export default function LoginPage() {
 
         <h1 className="mt-4 font-heading text-app-2xl font-bold">Welcome back</h1>
         <p className="mt-1 text-app-base text-muted-foreground">Sign in with a magic link. No password required.</p>
+
+        {error ? (
+          <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-app-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
 
         {!sent ? (
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -60,11 +98,8 @@ export default function LoginPage() {
           <div className="mt-6 space-y-2 rounded-md border border-sniper-green bg-sniper-green-muted p-4">
             <p className="text-app-sm font-semibold text-sniper-charcoal">Magic link sent</p>
             <p className="text-app-sm text-muted-foreground">
-              We sent a sign-in link to <span className="font-medium text-foreground">{email}</span>.
+              We sent a sign-in link to <span className="font-medium text-foreground">{email}</span>. Check inbox and spam.
             </p>
-            <Link href="/dashboard" className="inline-flex text-app-sm font-medium text-[#0A7C2E] underline">
-              Continue to demo dashboard
-            </Link>
           </div>
         )}
       </div>
