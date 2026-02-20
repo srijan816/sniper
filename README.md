@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SniperIP
 
-## Getting Started
+Automated IP protection SaaS for D2C brands.
 
-First, run the development server:
+This repository now contains **both frontend and backend**:
+
+- `src/`, `public/`, `next.config.ts`: Next.js application (marketing site + app UI)
+- `backend/`: FastAPI + Celery backend workers
+
+## Stack
+
+- Frontend: Next.js, Tailwind CSS, React
+- Backend: FastAPI, Celery, Redis, Supabase client
+- Infra: Stripe, Resend, Playwright, HuggingFace (via backend integrations)
+
+## Local Development
+
+### 1) Frontend
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Runs on `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2) Backend API
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-## Learn More
+Runs on `http://localhost:8000`.
 
-To learn more about Next.js, take a look at the following resources:
+### 3) Celery Worker
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cd backend
+source .venv/bin/activate
+celery -A app.celery_app worker --loglevel=info
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment
 
-## Deploy on Vercel
+Copy `.env.example` to `.env` and fill required values.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+cp .env.example .env
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+- Marketing routes live under `/` and `/pricing`.
+- Application routes live under `/dashboard` and `/admin`.
+- Backend source is in `backend/app`.
