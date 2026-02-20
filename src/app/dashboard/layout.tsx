@@ -19,8 +19,9 @@ import {
   Target,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { listClients } from "@/lib/api";
 
 const operationsItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -99,6 +100,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [companyName, setCompanyName] = useState("Your Brand");
+  const [planLabel, setPlanLabel] = useState("No active plan");
+  const [usage, setUsage] = useState<number | null>(null);
+  const [limit, setLimit] = useState<number | null>(null);
+
+  useEffect(() => {
+    const loadClient = async () => {
+      try {
+        const clients = await listClients();
+        if (clients.length === 0) return;
+        const client = clients[0];
+        setCompanyName(client.company_name || "Your Brand");
+        setPlanLabel(`${client.subscription_tier} Tier`);
+        setUsage(client.current_month_count ?? null);
+        setLimit(client.monthly_threat_limit ?? null);
+      } catch {
+        // Keep clean fallback values.
+      }
+    };
+    void loadClient();
+  }, []);
 
   const crumbs = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -107,15 +129,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return ["Operations", crumbLabels[current] ?? "Dashboard"];
   }, [pathname]);
 
-  const usage = 142;
-  const limit = 500;
-  const usageRatio = (usage / limit) * 100;
+  const usageRatio = usage !== null && limit !== null && limit > 0 ? (usage / limit) * 100 : 0;
   const usageTone =
     usageRatio >= 100
       ? "bg-red-100 text-red-800"
       : usageRatio >= 80
         ? "bg-amber-100 text-amber-800"
         : "bg-sniper-green-muted text-sniper-charcoal";
+  const initials = companyName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("") || "AC";
 
   const sidebar = (
     <aside
@@ -184,12 +210,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="border-t border-white/10 p-3">
           <div className="mb-3 flex items-center gap-3 rounded-md bg-white/5 p-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-sniper-green font-mono text-xs font-semibold text-sniper-charcoal">
-              DB
+              {initials}
             </div>
             {!collapsed ? (
               <div className="min-w-0">
-                <p className="truncate text-app-sm font-medium text-white">Demo Brand Co.</p>
-                <p className="text-app-xs text-sniper-ash">Growth Tier</p>
+                <p className="truncate text-app-sm font-medium text-white">{companyName}</p>
+                <p className="text-app-xs text-sniper-ash">{planLabel}</p>
               </div>
             ) : null}
           </div>
@@ -287,15 +313,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Bell className="h-4 w-4" />
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-sniper-green" />
             </button>
-            <span className={cn("hidden rounded-full px-2.5 py-1 text-app-xs font-medium md:inline-flex", usageTone)}>
-              {usage} / {limit} takedowns
-            </span>
+            {usage !== null && limit !== null && limit > 0 ? (
+              <span className={cn("hidden rounded-full px-2.5 py-1 text-app-xs font-medium md:inline-flex", usageTone)}>
+                {usage} / {limit} takedowns
+              </span>
+            ) : (
+              <span className="hidden rounded-full bg-sniper-green-muted px-2.5 py-1 text-app-xs font-medium text-sniper-charcoal md:inline-flex">
+                Live mode
+              </span>
+            )}
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-sniper-charcoal text-sm font-semibold text-white"
               aria-label="Account"
             >
-              JD
+              {initials}
             </button>
           </div>
         </header>

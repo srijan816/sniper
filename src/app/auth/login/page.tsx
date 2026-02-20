@@ -3,21 +3,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Mail } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
+  const [error, setError] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("error") === "auth_callback_failed") {
-      setError("Authentication failed. Please request a new magic link.");
-    }
-  }, []);
+    return params.get("error") === "auth_callback_failed"
+      ? "Authentication failed. Please request a new magic link."
+      : null;
+  });
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

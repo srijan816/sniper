@@ -4,11 +4,16 @@ from app.models.schemas import ClientCreate, ClientResponse, ClientAnalytics
 from typing import List
 from datetime import datetime
 import uuid
+import os
 
 router = APIRouter()
 
 # In-memory mock store for development
 _mock_clients = {}
+
+
+def _demo_enabled() -> bool:
+    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _seed_demo_client():
@@ -32,7 +37,8 @@ def _seed_demo_client():
         }
 
 
-_seed_demo_client()
+if _demo_enabled():
+    _seed_demo_client()
 
 
 @router.get("/", response_model=List[ClientResponse])

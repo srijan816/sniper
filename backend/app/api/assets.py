@@ -4,11 +4,16 @@ from app.models.schemas import AssetResponse, AssetType
 from typing import List, Optional
 from datetime import datetime
 import uuid
+import os
 
 router = APIRouter()
 
 # In-memory mock store
 _mock_assets = {}
+
+
+def _demo_enabled() -> bool:
+    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _seed_demo_assets():
@@ -49,7 +54,8 @@ def _seed_demo_assets():
         _mock_assets[d["id"]] = d
 
 
-_seed_demo_assets()
+if _demo_enabled():
+    _seed_demo_assets()
 
 
 @router.get("/", response_model=List[AssetResponse])

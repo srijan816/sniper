@@ -10,12 +10,17 @@ from app.models.schemas import (
 from typing import List, Optional
 from datetime import datetime
 import uuid
+import os
 
 router = APIRouter()
 
 # In-memory stores
 _mock_threats = {}
 _mock_audit_logs = {}
+
+
+def _demo_enabled() -> bool:
+    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _write_audit_log(threat_id: str, old_status: str, new_status: str, changed_by: str, metadata: dict = None):
@@ -109,7 +114,8 @@ def _seed_demo_threats():
             _write_audit_log(d["id"], "TAKEDOWN_SUBMITTED", "REMOVED", "SYSTEM")
 
 
-_seed_demo_threats()
+if _demo_enabled():
+    _seed_demo_threats()
 
 
 @router.get("/", response_model=List[ThreatResponse])
@@ -127,6 +133,19 @@ async def list_threats(
         threats = [t for t in threats if t["status"] == status]
     threats.sort(key=lambda t: t["discovered_at"], reverse=True)
     return threats[offset : offset + limit]
+
+
+@router.get("/audit-logs", response_model=List[AuditLogResponse])
+async def list_audit_logs(
+    threat_id: Optional[str] = None,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    logs = list(_mock_audit_logs.values())
+    if threat_id:
+        logs = [log for log in logs if log["threat_id"] == threat_id]
+    logs.sort(key=lambda l: l["changed_at"], reverse=True)
+    return logs[offset : offset + limit]
 
 
 @router.get("/{threat_id}", response_model=ThreatResponse)

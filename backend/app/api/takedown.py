@@ -4,12 +4,17 @@ from app.models.schemas import TakedownCreate, TakedownResponse, DLQEntry
 from typing import List
 from datetime import datetime
 import uuid
+import os
 
 router = APIRouter()
 
 # In-memory stores
 _mock_takedowns = {}
 _mock_dlq = {}
+
+
+def _demo_enabled() -> bool:
+    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _seed_demo_takedowns():
@@ -48,7 +53,8 @@ def _seed_demo_takedowns():
     }
 
 
-_seed_demo_takedowns()
+if _demo_enabled():
+    _seed_demo_takedowns()
 
 
 @router.post("/submit", response_model=TakedownResponse)
