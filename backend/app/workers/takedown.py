@@ -155,6 +155,25 @@ def _proxy_settings() -> dict | None:
     password = (settings.playwright_proxy_password or "").strip()
     bypass = (settings.playwright_proxy_bypass or "").strip()
 
+    proxy_pool_raw = (settings.playwright_proxy_pool or "").strip()
+    if proxy_pool_raw:
+        parsed = []
+        for chunk in proxy_pool_raw.split(","):
+            parts = [p.strip() for p in chunk.split("|")]
+            if not parts or not parts[0]:
+                continue
+            entry = {"server": parts[0]}
+            if len(parts) > 1 and parts[1]:
+                entry["username"] = parts[1]
+            if len(parts) > 2 and parts[2]:
+                entry["password"] = parts[2]
+            if len(parts) > 3 and parts[3]:
+                entry["bypass"] = parts[3]
+            parsed.append(entry)
+        if parsed:
+            idx = int(time.time()) % len(parsed)
+            return parsed[idx]
+
     if not server and settings.zenrows_proxy_server and (
         settings.zenrows_proxy_username or settings.zenrows_proxy_password
     ):
@@ -202,12 +221,20 @@ def _open_hardened_page(playwright):
     )
     page = context.new_page()
 
-    if settings.playwright_stealth_enabled and stealth_sync is not None:
+    if settings.playwright_stealth_enabled:
+        if stealth_sync is None:
+            context.close()
+            browser.close()
+            raise RuntimeError(
+                "Playwright stealth is enabled but playwright-stealth is unavailable. "
+                "Install playwright-stealth or disable PLAYWRIGHT_STEALTH_ENABLED."
+            )
         try:
             stealth_sync(page)
-        except Exception:
-            # Do not fail the workflow if stealth patching fails.
-            pass
+        except Exception as exc:
+            context.close()
+            browser.close()
+            raise RuntimeError(f"Failed to apply playwright-stealth: {exc}") from exc
 
     return browser, context, page
 
@@ -888,7 +915,11 @@ def _submit_generic_email_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
 
 
 def queue_takedown(takedown_id: str, countdown: int = 0):
-    execute_takedown_task.apply_async(args=[takedown_id], countdown=max(0, int(countdown)))
+    execute_takedown_task.apply_async(
+        args=[takedown_id],
+        countdown=max(0, int(countdown)),
+        queue="takedown",
+    )
 
 
 @celery_app.task(name="app.workers.takedown.execute_takedown_task")
@@ -980,17 +1011,20 @@ def execute_takedown_task(takedown_id: str):
                 },
             )
             _insert_dlq(takedown_id, str(exc), stack)
-            send_slack_alert.delay(
-                (
-                    "SniperIP takedown failed after 5 retries. "
-                    f"Threat ID: {threat_id}. Platform: {platform}. Reason: {exc}"
+            settings = get_settings()
+            if settings.slack_webhook_url:
+                send_slack_alert.delay(
+                    (
+                        "SniperIP takedown failed after 5 retries. "
+                        f"Threat ID: {threat_id}. Platform: {platform}. Reason: {exc}"
+                    )
                 )
-            )
             return {
                 "takedown_id": takedown_id,
                 "status": "FAILED",
                 "retry_count": next_retry,
                 "error": str(exc),
+                "slack_alert_configured": bool(settings.slack_webhook_url),
             }
 
         delay = 60 * (2 ** next_retry)

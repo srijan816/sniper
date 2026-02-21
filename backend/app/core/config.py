@@ -44,10 +44,10 @@ class Settings(BaseSettings):
     # HuggingFace
     huggingface_api_token: str = ""
     huggingface_embedding_model: str = "google/siglip-base-patch16-224"
-    huggingface_embedding_backend: str = "local"  # local | endpoint | shared | auto
+    huggingface_embedding_backend: str = "endpoint"  # local | endpoint | shared | auto
     huggingface_inference_endpoint_url: str = ""
     huggingface_inference_endpoint_token: str = ""
-    huggingface_allow_shared_fallback: bool = False
+    huggingface_allow_shared_fallback: bool = True
     embedding_request_retries: int = 3
 
     # Verification
@@ -63,11 +63,16 @@ class Settings(BaseSettings):
     playwright_proxy_username: str = ""
     playwright_proxy_password: str = ""
     playwright_proxy_bypass: str = ""
+    playwright_proxy_pool: str = ""  # comma-separated: server|username|password|bypass
     playwright_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     )
+
+    # Discovery pacing
+    discovery_tick_interval_seconds: int = 900
+    discovery_client_spacing_seconds: int = 30
 
     # Meta / Amazon enforcement
     meta_access_token: str = ""

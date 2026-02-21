@@ -1,7 +1,10 @@
 """Discovery worker: SerpApi radar + whitelist + verification pipeline."""
 from __future__ import annotations
 
+import time
 from urllib.parse import urlparse
+
+import redis
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
@@ -67,22 +70,69 @@ def _safe_record_bad_actor(signals: BadActorSignals):
         return
 
 
-@celery_app.task(name="app.workers.discovery.run_discovery_all")
-def run_discovery_all():
-    """Periodic task: run discovery for all active paid clients."""
-    clients = (
+def _paid_client_ids() -> list[str]:
+    rows = (
         _db()
         .table("clients")
         .select("id")
         .neq("subscription_tier", "FREE")
         .gt("monthly_threat_limit", 0)
+        .order("id")
         .execute()
         .data
         or []
     )
-    for client in clients:
-        run_discovery_for_client.delay(client["id"])
-    return {"clients_queued": len(clients)}
+    return [row["id"] for row in rows if row.get("id")]
+
+
+def _next_client_index(total: int) -> int:
+    if total <= 0:
+        return 0
+    settings = get_settings()
+    key = "sniperip:discovery:client_cursor"
+    try:
+        client = redis.from_url(settings.redis_url, decode_responses=True)
+        raw = client.get(key)
+        current = int(raw) if raw is not None else 0
+        index = current % total
+        client.set(key, (index + 1) % total)
+        return index
+    except Exception:
+        # Fallback keeps discovery alive when Redis cursor state is unavailable.
+        return int(time.time()) % total
+
+
+@celery_app.task(name="app.workers.discovery.run_discovery_tick")
+def run_discovery_tick():
+    """
+    Queue discovery for exactly one paid client per tick.
+    This smooths load and avoids batch spikes.
+    """
+    client_ids = _paid_client_ids()
+    if not client_ids:
+        return {"status": "no_paid_clients"}
+
+    selected = client_ids[_next_client_index(len(client_ids))]
+    run_discovery_for_client.apply_async(args=[selected], queue="discovery")
+    return {"status": "queued_one_client", "client_id": selected, "total_paid_clients": len(client_ids)}
+
+
+@celery_app.task(name="app.workers.discovery.run_discovery_all")
+def run_discovery_all():
+    """
+    Queue all paid clients with spacing.
+    Keep for manual catch-up runs; beat uses run_discovery_tick.
+    """
+    settings = get_settings()
+    client_ids = _paid_client_ids()
+    spacing = max(0, int(settings.discovery_client_spacing_seconds or 30))
+    for idx, client_id in enumerate(client_ids):
+        run_discovery_for_client.apply_async(
+            args=[client_id],
+            countdown=idx * spacing,
+            queue="discovery",
+        )
+    return {"clients_queued": len(client_ids), "spacing_seconds": spacing}
 
 
 @celery_app.task(name="app.workers.discovery.run_discovery_for_client")

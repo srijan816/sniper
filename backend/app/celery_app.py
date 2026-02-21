@@ -25,14 +25,26 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    task_default_queue="default",
+    task_routes={
+        "app.workers.discovery.run_discovery_tick": {"queue": "discovery"},
+        "app.workers.discovery.run_discovery_all": {"queue": "discovery"},
+        "app.workers.discovery.run_discovery_for_client": {"queue": "discovery"},
+        "app.workers.vectorize.vectorize_asset_task": {"queue": "vectorize"},
+        "app.workers.takedown.execute_takedown_task": {"queue": "takedown"},
+        "app.workers.notifications.send_upgrade_email": {"queue": "notifications"},
+        "app.workers.notifications.send_threat_digest": {"queue": "notifications"},
+        "app.workers.notifications.send_slack_alert": {"queue": "notifications"},
+        "app.workers.notifications.send_takedown_confirmation": {"queue": "notifications"},
+    },
     # Retry policy
     task_default_retry_delay=60,
     task_max_retries=5,
     # Beat schedule for periodic discovery
     beat_schedule={
-        "run-discovery-all-clients": {
-            "task": "app.workers.discovery.run_discovery_all",
-            "schedule": 3600.0,  # Every hour
+        "run-discovery-tick": {
+            "task": "app.workers.discovery.run_discovery_tick",
+            "schedule": float(settings.discovery_tick_interval_seconds),  # Default: every 15 minutes
         },
     },
 )

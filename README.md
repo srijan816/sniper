@@ -53,8 +53,9 @@ cp .env.example .env
 ```
 
 For hardened verification/RPA, set:
-- `HUGGINGFACE_EMBEDDING_BACKEND=local` (or `endpoint`)
+- `HUGGINGFACE_EMBEDDING_BACKEND=endpoint`
 - Meta/Amazon/Playwright proxy env vars when those integrations are enabled
+- `DISCOVERY_TICK_INTERVAL_SECONDS=900` for staggered radar scans
 
 ## Database Migration
 
@@ -62,6 +63,18 @@ Apply the hardening SQL before enabling workers:
 
 ```bash
 psql "$SUPABASE_DB_URL" -f backend/sql/20260221_threat_atomicity.sql
+```
+
+## Celery Queue Tuning
+
+Use split workers so takedowns do not starve web/API resources:
+
+```bash
+# Throttle Playwright-heavy takedowns
+celery -A app.celery_app.celery_app worker --loglevel=INFO -Q takedown -c 2 -n takedown@%h
+
+# Discovery/vectorize/notifications worker
+celery -A app.celery_app.celery_app worker --loglevel=INFO -Q discovery,vectorize,notifications,default -c 2 -n general@%h
 ```
 
 ## Notes
