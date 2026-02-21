@@ -44,7 +44,7 @@ CREATE OR REPLACE FUNCTION create_threat_with_audit(
 RETURNS TABLE(threat_id uuid, created boolean)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_threat_id uuid;
@@ -71,7 +71,7 @@ BEGIN
     discovered_at
   )
   VALUES (
-    uuid_generate_v4(),
+    extensions.uuid_generate_v4(),
     p_asset_id,
     v_client_id,
     p_infringing_url,
