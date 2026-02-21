@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AdminMetrics, CostMetrics, DLQEntry
+from app.workers.takedown import queue_takedown
 
 router = APIRouter()
 
@@ -76,13 +77,28 @@ async def get_admin_metrics():
 
 @router.get("/costs", response_model=CostMetrics)
 async def get_cost_metrics():
-    """Cost metrics placeholder until cost telemetry table is implemented."""
-    return CostMetrics(
-        serpapi_credits_used=0,
-        serpapi_credits_limit=10000,
-        hf_compute_hours=0.0,
-        zenrows_bandwidth_mb=0.0,
-    )
+    """Cost metrics from telemetry table when available, otherwise safe defaults."""
+    try:
+        res = _db().table("cost_metrics").select("*").order("created_at", desc=True).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise RuntimeError("No cost_metrics rows found")
+        latest = rows[0]
+        return CostMetrics(
+            serpapi_credits_used=int(latest.get("serpapi_credits_used") or 0),
+            serpapi_credits_limit=int(latest.get("serpapi_credits_limit") or 10000),
+            hf_compute_hours=float(latest.get("hf_compute_hours") or 0.0),
+            zenrows_bandwidth_mb=float(latest.get("zenrows_bandwidth_mb") or 0.0),
+        )
+    except Exception as exc:
+        if _table_missing(exc):
+            return CostMetrics(
+                serpapi_credits_used=0,
+                serpapi_credits_limit=10000,
+                hf_compute_hours=0.0,
+                zenrows_bandwidth_mb=0.0,
+            )
+        raise HTTPException(status_code=500, detail=f"Failed to load cost metrics: {exc}") from exc
 
 
 def _map_dlq(row: dict) -> dict:
@@ -128,6 +144,7 @@ async def retry_dlq_entry(dlq_id: str):
                 ("takedown_requests", "takedowns"),
                 lambda table: db.table(table).update({"status": "PENDING", "retry_count": 0}).eq("id", takedown_id).execute(),
             )
+            queue_takedown(takedown_id)
         _with_table(("dead_letter_queue", "dlq"), lambda table: db.table(table).delete().eq("id", dlq_id).execute())
         return {"status": "requeued", "takedown_id": takedown_id}
     except HTTPException:

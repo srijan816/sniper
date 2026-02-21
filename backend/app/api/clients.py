@@ -1,10 +1,13 @@
 """Client API routes (Supabase-backed)."""
 from datetime import datetime
+import os
+import re
 import uuid
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from app.core.config import get_settings
 from app.core.database import get_supabase_client
 from app.models.schemas import ClientAnalytics, ClientCreate, ClientResponse
 
@@ -31,6 +34,11 @@ def _map_client(row: dict) -> dict:
         "whitelist_domains": row.get("whitelist_domains") or [],
         "created_at": row.get("created_at") or datetime.utcnow().isoformat(),
     }
+
+
+def _safe_filename(filename: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "-", filename or "document.pdf")
+    return cleaned.strip("-") or "document.pdf"
 
 
 @router.get("/", response_model=List[ClientResponse])
@@ -81,6 +89,70 @@ async def create_client(data: ClientCreate):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create client: {exc}") from exc
+
+
+@router.post("/{client_id}/loa-upload")
+async def upload_loa_document(client_id: str, file: UploadFile = File(...)):
+    """Upload a signed Letter of Authorization (LOA) and store public URL."""
+    settings = get_settings()
+    bucket = settings.loa_storage_bucket or os.getenv("LOA_STORAGE_BUCKET", "legal-documents")
+    fallback_bucket = settings.supabase_storage_bucket or os.getenv("SUPABASE_STORAGE_BUCKET", "assets")
+    filename = _safe_filename(file.filename or "loa.pdf")
+    loa_id = str(uuid.uuid4())
+    path = f"{client_id}/loa/{loa_id}-{filename}"
+
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded LOA is empty.")
+
+    loa_document_url = None
+    last_error = None
+    for candidate_bucket in (bucket, fallback_bucket):
+        if not candidate_bucket:
+            continue
+        try:
+            storage = _db().storage.from_(candidate_bucket)
+            storage.upload(path, data, {"content-type": file.content_type or "application/pdf", "upsert": "true"})
+            public_url = storage.get_public_url(path)
+            if isinstance(public_url, dict):
+                loa_document_url = public_url.get("publicUrl") or public_url.get("public_url") or path
+            else:
+                loa_document_url = str(public_url)
+            break
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if not loa_document_url:
+        raise HTTPException(status_code=500, detail=f"Failed to upload LOA file: {last_error}")
+
+    try:
+        updated = (
+            _db()
+            .table("clients")
+            .update(
+                {
+                    "loa_document_url": loa_document_url,
+                    "loa_signed_at": datetime.utcnow().isoformat(),
+                }
+            )
+            .eq("id", client_id)
+            .execute()
+            .data
+            or []
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Client not found")
+        return {
+            "status": "uploaded",
+            "client_id": client_id,
+            "loa_document_url": loa_document_url,
+            "loa_signed_at": updated[0].get("loa_signed_at"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to persist LOA metadata: {exc}") from exc
 
 
 @router.get("/{client_id}/analytics", response_model=ClientAnalytics)

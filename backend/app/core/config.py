@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     supabase_anon_key: str = ""
+    supabase_db_url: str = ""
+    supabase_storage_bucket: str = "assets"
+    evidence_storage_bucket: str = "evidence-locker"
+    loa_storage_bucket: str = "legal-documents"
 
     # Stripe
     stripe_secret_key: str = ""
@@ -19,12 +23,14 @@ class Settings(BaseSettings):
 
     # SerpApi
     serpapi_key: str = ""
+    serpapi_engine: str = "google_lens"
 
     # Resend
     resend_api_key: str = ""
 
     # Slack
     slack_webhook_url: str = ""
+    notification_from_email: str = "SniperIP <noreply@sniperip.com>"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -34,6 +40,15 @@ class Settings(BaseSettings):
 
     # HuggingFace
     huggingface_api_token: str = ""
+    huggingface_embedding_model: str = "google/siglip-base-patch16-224"
+
+    # Verification
+    similarity_threshold: float = 0.95
+
+    # Automation
+    two_captcha_api_key: str = ""
+    shopify_dmca_form_url: str = "https://www.shopify.com/legal/report-aup-violation"
+    playwright_headless: bool = True
 
     # App
     backend_url: str = "http://localhost:8000"

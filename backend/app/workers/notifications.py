@@ -1,68 +1,33 @@
-"""Notification services — Resend emails, Slack webhooks"""
-from app.core.config import get_settings
+"""Celery notification tasks."""
+from app.celery_app import celery_app
+from app.services.notification_service import (
+    send_slack_alert as send_slack_alert_service,
+    send_threat_digest as send_threat_digest_service,
+    send_takedown_confirmation as send_takedown_confirmation_service,
+    send_upgrade_email as send_upgrade_email_service,
+)
 
 
+@celery_app.task(name="app.workers.notifications.send_upgrade_email")
 def send_upgrade_email(client_email: str, client_name: str):
-    """
-    Send quota limit upgrade email via Resend.
-    
-    Triggered when client hits monthly_threat_limit.
-    """
-    settings = get_settings()
-    
-    # In production:
-    # import resend
-    # resend.api_key = settings.resend_api_key
-    # resend.Emails.send({
-    #     "from": "SniperIP <noreply@sniperip.com>",
-    #     "to": client_email,
-    #     "subject": "You've reached your monthly threat limit",
-    #     "html": f"<h1>Hi {client_name},</h1>..."
-    # })
-    
-    return {
-        "status": "sent",
-        "to": client_email,
-        "subject": "You've reached your monthly threat limit — Upgrade to continue protecting your brand",
-    }
+    send_upgrade_email_service(client_email, client_name)
+    return {"status": "sent", "to": client_email}
 
 
+@celery_app.task(name="app.workers.notifications.send_threat_digest")
 def send_threat_digest(client_email: str, threats_count: int, revenue_protected: float):
-    """Weekly digest email with threat summary"""
-    return {
-        "status": "sent",
-        "to": client_email,
-        "subject": f"Weekly IP Report: {threats_count} threats found, ${revenue_protected:,.0f} protected",
-    }
+    send_threat_digest_service(client_email, threats_count, revenue_protected)
+    return {"status": "sent", "to": client_email}
 
 
+@celery_app.task(name="app.workers.notifications.send_slack_alert")
 def send_slack_alert(message: str, channel: str = "admin-alerts"):
-    """
-    Send alert to Slack admin channel.
-    
-    Used for:
-    - DLQ failures (🚨 Shopify DMCA failed after 5 retries)
-    - New client signups
-    - System health alerts
-    """
-    settings = get_settings()
-    
-    # In production:
-    # from slack_sdk.webhook import WebhookClient
-    # webhook = WebhookClient(settings.slack_webhook_url)
-    # webhook.send(text=message)
-    
-    return {
-        "status": "sent",
-        "channel": channel,
-        "message": message,
-    }
+    del channel  # single webhook destination
+    send_slack_alert_service(message)
+    return {"status": "sent"}
 
 
+@celery_app.task(name="app.workers.notifications.send_takedown_confirmation")
 def send_takedown_confirmation(client_email: str, threat_url: str, platform: str, case_number: str):
-    """Notify client that a takedown was successfully filed"""
-    return {
-        "status": "sent",
-        "to": client_email,
-        "subject": f"Takedown filed: {platform} — Case #{case_number}",
-    }
+    send_takedown_confirmation_service(client_email, threat_url, platform, case_number)
+    return {"status": "sent", "to": client_email}

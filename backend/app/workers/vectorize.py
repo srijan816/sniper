@@ -1,56 +1,84 @@
-"""Vectorization Worker — SigLIP 2 + pHash"""
+"""Vectorization worker (SigLIP + pHash + pgvector)."""
+from __future__ import annotations
+
 import uuid
-import random
-import hashlib
+
+from app.celery_app import celery_app
+from app.core.config import get_settings
+from app.core.database import get_supabase_client
+from app.services.vector_store import get_asset_embedding, upsert_asset_embedding
+from app.services.vision import (
+    compute_phash,
+    cosine_similarity,
+    download_bytes,
+    embedding_from_image_bytes,
+    embedding_from_image_url,
+    extract_video_frame_bytes,
+)
 
 
-def vectorize_asset(asset_id: str, image_url: str):
-    """
-    Vectorize an image asset:
-    1. Download the image from storage_url
-    2. Generate SigLIP 2 embedding (768-dim vector)
-    3. Compute pHash for fast dedup
-    4. Store in asset_embeddings table
-    
-    In production, uses:
-    - transformers (SigLIP 2 model)
-    - imagehash (pHash)
-    - Supabase client for DB writes
-    """
-    # Mock implementation
-    mock_embedding = [random.uniform(-1, 1) for _ in range(768)]
-    mock_phash = hashlib.md5(f"phash-{asset_id}".encode()).hexdigest()[:16]
-    
-    return {
-        "asset_id": asset_id,
-        "phash": mock_phash,
-        "embedding_dim": len(mock_embedding),
-        "status": "vectorized",
-    }
+def _db():
+    db = get_supabase_client()
+    if db is None:
+        raise RuntimeError("Supabase is not configured.")
+    return db
 
 
-def extract_video_frame(video_url: str, timestamp: float = 3.0):
-    """
-    Extract a frame from a video at the given timestamp.
-    
-    Uses ffmpeg-python:
-    ffmpeg.input(video_url, ss=timestamp).output(output_path, vframes=1).run()
-    
-    Returns the path to the extracted thumbnail.
-    """
-    # Mock: return a placeholder thumbnail path
-    frame_filename = f"frame_{int(timestamp*1000)}ms.jpg"
-    return {
-        "thumbnail_path": f"/tmp/sniperip/frames/{frame_filename}",
-        "timestamp": timestamp,
-        "status": "extracted",
-    }
+def _upload_thumbnail(asset_id: str, client_id: str, frame_bytes: bytes) -> str:
+    settings = get_settings()
+    bucket = settings.supabase_storage_bucket
+    path = f"{client_id}/{asset_id}-thumb.jpg"
+    storage = _db().storage.from_(bucket)
+    storage.upload(path, frame_bytes, {"content-type": "image/jpeg", "upsert": "true"})
+    public_url = storage.get_public_url(path)
+    if isinstance(public_url, dict):
+        return public_url.get("publicUrl") or public_url.get("public_url") or path
+    return str(public_url)
 
 
-def compute_similarity(embedding_a: list, embedding_b: list) -> float:
-    """
-    Compute cosine similarity between two SigLIP embeddings.
-    Score >= 0.95 → confirmed threat.
-    """
-    # Mock: return random similarity
-    return round(random.uniform(0.88, 0.99), 4)
+def _fetch_asset(asset_id: str) -> dict:
+    rows = _db().table("assets").select("*").eq("id", asset_id).limit(1).execute().data or []
+    if not rows:
+        raise RuntimeError(f"Asset {asset_id} not found.")
+    return rows[0]
+
+
+@celery_app.task(name="app.workers.vectorize.vectorize_asset_task")
+def vectorize_asset_task(asset_id: str):
+    """Vectorize asset and persist into asset_embeddings."""
+    asset = _fetch_asset(asset_id)
+    asset_type = (asset.get("asset_type") or "IMAGE").upper()
+    source_url = asset.get("storage_url")
+    if not source_url:
+        raise RuntimeError(f"Asset {asset_id} has no storage_url.")
+
+    if asset_type == "VIDEO":
+        frame_bytes = extract_video_frame_bytes(source_url, timestamp_seconds=3.0)
+        thumbnail_url = _upload_thumbnail(asset_id, asset["client_id"], frame_bytes)
+        _db().table("assets").update({"thumbnail_url": thumbnail_url}).eq("id", asset_id).execute()
+        image_bytes = frame_bytes
+    else:
+        image_bytes = download_bytes(source_url)
+
+    embedding = embedding_from_image_bytes(image_bytes)
+    phash = compute_phash(image_bytes)
+    upsert_asset_embedding(asset_id=asset_id, phash=phash, embedding=embedding)
+    return {"asset_id": asset_id, "embedding_dim": len(embedding), "phash": phash, "status": "vectorized"}
+
+
+def ensure_asset_vectorized(asset_id: str) -> list[float]:
+    existing = get_asset_embedding(asset_id)
+    if existing:
+        return existing
+    vectorize_asset_task(asset_id)
+    created = get_asset_embedding(asset_id)
+    if not created:
+        raise RuntimeError(f"Failed to generate embedding for asset {asset_id}.")
+    return created
+
+
+def similarity_for_candidate(asset_id: str, candidate_image_url: str) -> float:
+    """Compute real cosine similarity between an asset vector and candidate image."""
+    asset_embedding = ensure_asset_vectorized(asset_id)
+    candidate_embedding = embedding_from_image_url(candidate_image_url)
+    return float(cosine_similarity(asset_embedding, candidate_embedding))

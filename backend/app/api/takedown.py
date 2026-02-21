@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.database import get_supabase_client
 from app.models.schemas import TakedownCreate, TakedownResponse
+from app.workers.takedown import queue_takedown
 
 router = APIRouter()
 
@@ -73,6 +74,11 @@ async def submit_takedown(data: TakedownCreate):
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="Takedown creation failed.")
+        try:
+            queue_takedown(row["id"])
+        except Exception:
+            # Persisted request remains visible for manual retry if queue is unavailable.
+            pass
         return _map_takedown(rows[0])
     except HTTPException:
         raise

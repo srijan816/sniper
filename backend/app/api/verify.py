@@ -1,12 +1,13 @@
-"""Verification endpoint (Supabase-backed insert for high-confidence threats)."""
+"""Verification endpoint using real embedding similarity (SigLIP + pgvector)."""
 from datetime import datetime
-import random
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
+from app.core.config import get_settings
 from app.core.database import get_supabase_client
 from app.models.schemas import VerifyThreatRequest, VerifyThreatResponse
+from app.workers.vectorize import similarity_for_candidate
 
 router = APIRouter()
 
@@ -20,25 +21,36 @@ def _db():
 
 @router.post("/verify-threat", response_model=VerifyThreatResponse)
 async def verify_threat(data: VerifyThreatRequest):
-    """
-    Module 3: Verification & Audit Engine.
-    TODO: replace mock scoring with SigLIP similarity scoring.
-    """
-    mock_score = round(random.uniform(0.88, 0.99), 4)
-    is_threat = mock_score >= 0.95
+    """Module 3: verify threat candidate with real cosine similarity."""
+    settings = get_settings()
+    similarity = similarity_for_candidate(data.asset_id, data.candidate_image_url)
+    is_threat = similarity >= settings.similarity_threshold
 
     if not is_threat:
-        return VerifyThreatResponse(is_threat=False, similarity_score=mock_score, threat_id=None)
+        return VerifyThreatResponse(is_threat=False, similarity_score=similarity, threat_id=None)
 
     threat_id = str(uuid.uuid4())
     try:
         db = _db()
+        existing = (
+            db.table("threats")
+            .select("id")
+            .eq("asset_id", data.asset_id)
+            .eq("infringing_url", data.candidate_listing_url)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing:
+            return VerifyThreatResponse(is_threat=True, similarity_score=similarity, threat_id=existing[0]["id"])
+
         threat_row = {
             "id": threat_id,
             "asset_id": data.asset_id,
             "infringing_url": data.candidate_listing_url,
             "host_domain": data.host_domain,
-            "similarity_score": mock_score,
+            "similarity_score": similarity,
             "status": "DISCOVERED",
             "discovered_at": datetime.utcnow().isoformat(),
         }
@@ -54,4 +66,4 @@ async def verify_threat(data: VerifyThreatRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to persist verified threat: {exc}") from exc
 
-    return VerifyThreatResponse(is_threat=True, similarity_score=mock_score, threat_id=threat_id)
+    return VerifyThreatResponse(is_threat=True, similarity_score=similarity, threat_id=threat_id)

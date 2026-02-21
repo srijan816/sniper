@@ -101,7 +101,7 @@ export default function MarketingHomePage() {
             <div className="lg:col-span-6">
               <div className="overflow-hidden rounded-md border border-[#E2E8F0] bg-white shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)]">
                 <Image
-                  src="/hero-dashboard.webp"
+                  src="/generated/1.png"
                   alt="SniperIP dashboard showing automated threat detection and enforcement workflow"
                   width={1600}
                   height={1000}
@@ -211,7 +211,7 @@ export default function MarketingHomePage() {
 
             <div className="relative overflow-hidden rounded-md border border-white/20 bg-[#10131B] p-4 shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)] md:p-6">
               <Image
-                src="/threat-inbox-demo.webp"
+                src="/generated/2.png"
                 alt="Threat inbox demo with original and counterfeit listing comparison"
                 width={1600}
                 height={1000}

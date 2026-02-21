@@ -1,11 +1,13 @@
 """Threat management API routes (Supabase-backed)."""
 from datetime import datetime
 from typing import List, Optional
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AuditLogResponse, ThreatResponse
+from app.workers.takedown import queue_takedown
 
 router = APIRouter()
 
@@ -63,6 +65,31 @@ def _write_audit_log(threat_id: str, old_status: Optional[str], new_status: str,
             "changed_by": changed_by,
         }
     ).execute()
+
+
+def _table_missing(exc: Exception) -> bool:
+    message = str(exc)
+    return "PGRST205" in message or "Could not find the table" in message
+
+
+def _with_takedown_table(fn):
+    last_error = None
+    for table_name in ("takedown_requests", "takedowns"):
+        try:
+            return fn(table_name)
+        except Exception as exc:
+            if _table_missing(exc):
+                last_error = exc
+                continue
+            raise
+    raise HTTPException(status_code=500, detail=f"Takedown table not found: {last_error}")
+
+
+def _derive_platform(host_domain: str) -> str:
+    domain = (host_domain or "").lower()
+    if any(name in domain for name in ("instagram.com", "facebook.com", "meta.com")):
+        return "meta"
+    return "shopify"
 
 
 @router.get("/", response_model=List[ThreatResponse])
@@ -146,6 +173,19 @@ async def approve_threat(threat_id: str):
 
         updated = db.table("threats").update({"status": "APPROVED"}).eq("id", threat_id).execute().data or []
         _write_audit_log(threat_id, old_status, "APPROVED", "CLIENT_USER")
+
+        takedown_id = str(uuid.uuid4())
+        takedown_row = {
+            "id": takedown_id,
+            "threat_id": threat_id,
+            "platform": _derive_platform(threat.get("host_domain") or ""),
+            "status": "PENDING",
+            "retry_count": 0,
+            "submitted_at": None,
+        }
+        _with_takedown_table(lambda table: db.table(table).insert(takedown_row).execute())
+        queue_takedown(takedown_id)
+
         row = updated[0] if updated else threat
         asset_map = _fetch_asset_client_map([row.get("asset_id")] if row.get("asset_id") else [])
         return _map_threat(row, asset_map.get(row.get("asset_id")))

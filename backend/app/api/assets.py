@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AssetResponse
+from app.workers.vectorize import vectorize_asset_task
 
 router = APIRouter()
 
@@ -115,7 +116,16 @@ async def upload_asset(
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="Asset upload failed.")
-        return _map_asset(rows[0])
+        persisted = _map_asset(rows[0])
+
+        # Kick off real embedding generation without blocking upload UX.
+        try:
+            vectorize_asset_task.delay(asset_id)
+        except Exception:
+            # Keep upload successful even if worker queue is temporarily unavailable.
+            pass
+
+        return persisted
     except HTTPException:
         raise
     except Exception as exc:
