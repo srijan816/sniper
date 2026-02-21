@@ -1,92 +1,111 @@
-"""Takedown execution API — Module 4"""
-from fastapi import APIRouter, HTTPException
-from app.models.schemas import TakedownCreate, TakedownResponse, DLQEntry
-from typing import List
+"""Takedown execution API (Supabase-backed)."""
 from datetime import datetime
+from typing import List
 import uuid
-import os
+
+from fastapi import APIRouter, HTTPException
+
+from app.core.database import get_supabase_client
+from app.models.schemas import TakedownCreate, TakedownResponse
 
 router = APIRouter()
 
-# In-memory stores
-_mock_takedowns = {}
-_mock_dlq = {}
+
+def _db():
+    db = get_supabase_client()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Supabase is not configured.")
+    return db
 
 
-def _demo_enabled() -> bool:
-    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
+def _table_missing(exc: Exception) -> bool:
+    message = str(exc)
+    return "PGRST205" in message or "Could not find the table" in message
 
 
-def _seed_demo_takedowns():
-    """Seed demo takedowns and DLQ entries"""
-    _mock_takedowns["td-demo-001"] = {
-        "id": "td-demo-001",
-        "threat_id": "threat-demo-004",
-        "platform": "shopify",
-        "case_number": "DMCA-2024-SHP-001",
-        "status": "CONFIRMED",
-        "retry_count": 0,
-        "submitted_at": datetime.now().isoformat(),
-        "completed_at": datetime.now().isoformat(),
-        "created_at": datetime.now().isoformat(),
+def _with_takedown_table(fn):
+    last_error = None
+    for table_name in ("takedown_requests", "takedowns"):
+        try:
+            return fn(table_name)
+        except Exception as exc:  # Supabase returns runtime API errors.
+            if _table_missing(exc):
+                last_error = exc
+                continue
+            raise
+    raise HTTPException(status_code=500, detail=f"Takedown table not found: {last_error}")
+
+
+def _map_takedown(row: dict) -> dict:
+    status = row.get("status") or "PENDING"
+    submitted_at = row.get("submitted_at")
+    created_at = submitted_at or datetime.utcnow().isoformat()
+    completed_at = row.get("completed_at")
+    if completed_at is None and status in {"CONFIRMED", "FAILED"}:
+        completed_at = submitted_at
+
+    return {
+        "id": row.get("id"),
+        "threat_id": row.get("threat_id"),
+        "platform": row.get("platform") or "shopify",
+        "case_number": row.get("case_number"),
+        "status": status,
+        "retry_count": row.get("retry_count") or 0,
+        "submitted_at": submitted_at,
+        "completed_at": completed_at,
+        "created_at": created_at,
     }
-    # A failed takedown in DLQ
-    _mock_takedowns["td-demo-002"] = {
-        "id": "td-demo-002",
-        "threat_id": "threat-demo-002",
-        "platform": "shopify",
-        "case_number": None,
-        "status": "FAILED",
-        "retry_count": 5,
-        "submitted_at": datetime.now().isoformat(),
-        "completed_at": None,
-        "created_at": datetime.now().isoformat(),
-    }
-    _mock_dlq["dlq-demo-001"] = {
-        "id": "dlq-demo-001",
-        "takedown_id": "td-demo-002",
-        "error_reason": "Timeout on Submit button — Turnstile CAPTCHA blocked after 5 retries",
-        "stack_trace": 'playwright._impl._errors.TimeoutError: Timeout 30000ms exceeded.\n  at Page.click("#submit-dmca-btn")\n  at ShopifyDMCA.submit_form(shopify_rpa.py:142)\n  at TakedownWorker.execute(takedown.py:87)',
-        "resolved": False,
-        "resolved_at": None,
-        "failed_at": datetime.now().isoformat(),
-    }
-
-
-if _demo_enabled():
-    _seed_demo_takedowns()
 
 
 @router.post("/submit", response_model=TakedownResponse)
 async def submit_takedown(data: TakedownCreate):
-    """Queue a takedown request — triggers Celery worker in production"""
-    td_id = str(uuid.uuid4())
-    takedown = {
-        "id": td_id,
+    """Queue a takedown request."""
+    row = {
+        "id": str(uuid.uuid4()),
         "threat_id": data.threat_id,
         "platform": data.platform,
-        "case_number": None,
         "status": "PENDING",
         "retry_count": 0,
-        "submitted_at": None,
-        "completed_at": None,
-        "created_at": datetime.now().isoformat(),
+        "submitted_at": datetime.utcnow().isoformat(),
     }
-    _mock_takedowns[td_id] = takedown
-    # In production: takedown_task.delay(td_id)
-    return takedown
+    try:
+        res = _with_takedown_table(lambda table: _db().table(table).insert(row).execute())
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=500, detail="Takedown creation failed.")
+        return _map_takedown(rows[0])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to submit takedown: {exc}") from exc
 
 
 @router.get("/{takedown_id}", response_model=TakedownResponse)
 async def get_takedown(takedown_id: str):
-    if takedown_id not in _mock_takedowns:
-        raise HTTPException(status_code=404, detail="Takedown not found")
-    return _mock_takedowns[takedown_id]
+    try:
+        res = _with_takedown_table(
+            lambda table: _db().table(table).select("*").eq("id", takedown_id).limit(1).execute()
+        )
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Takedown not found")
+        return _map_takedown(rows[0])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch takedown: {exc}") from exc
 
 
 @router.get("/", response_model=List[TakedownResponse])
 async def list_takedowns(threat_id: str = None):
-    tds = list(_mock_takedowns.values())
-    if threat_id:
-        tds = [t for t in tds if t["threat_id"] == threat_id]
-    return tds
+    try:
+        def _query(table_name: str):
+            query = _db().table(table_name).select("*").order("submitted_at", desc=True)
+            if threat_id:
+                query = query.eq("threat_id", threat_id)
+            return query.execute()
+
+        res = _with_takedown_table(_query)
+        return [_map_takedown(row) for row in (res.data or [])]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list takedowns: {exc}") from exc

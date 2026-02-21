@@ -1,77 +1,85 @@
-"""Asset management API routes"""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from app.models.schemas import AssetResponse, AssetType
-from typing import List, Optional
+"""Asset management API routes (Supabase-backed)."""
 from datetime import datetime
-import uuid
 import os
+import re
+import uuid
+from typing import List, Optional
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from app.core.database import get_supabase_client
+from app.models.schemas import AssetResponse
 
 router = APIRouter()
 
-# In-memory mock store
-_mock_assets = {}
+
+def _db():
+    db = get_supabase_client()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Supabase is not configured.")
+    return db
 
 
-def _demo_enabled() -> bool:
-    return os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() in {"1", "true", "yes", "on"}
+def _safe_filename(filename: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "-", filename or "upload")
+    return cleaned.strip("-") or "upload"
 
 
-def _seed_demo_assets():
-    """Seed demo assets"""
-    demos = [
-        {
-            "id": "asset-demo-001",
-            "client_id": "demo-client-001",
-            "asset_type": "IMAGE",
-            "original_filename": "hero-sneaker-v2.jpg",
-            "storage_url": "/storage/assets/hero-sneaker-v2.jpg",
-            "thumbnail_url": None,
-            "status": "ACTIVE",
-            "created_at": datetime.now().isoformat(),
-        },
-        {
-            "id": "asset-demo-002",
-            "client_id": "demo-client-001",
-            "asset_type": "IMAGE",
-            "original_filename": "limited-edition-bag.jpg",
-            "storage_url": "/storage/assets/limited-edition-bag.jpg",
-            "thumbnail_url": None,
-            "status": "ACTIVE",
-            "created_at": datetime.now().isoformat(),
-        },
-        {
-            "id": "asset-demo-003",
-            "client_id": "demo-client-001",
-            "asset_type": "VIDEO",
-            "original_filename": "product-360-spin.mp4",
-            "storage_url": "/storage/assets/product-360-spin.mp4",
-            "thumbnail_url": "/storage/assets/product-360-spin-thumb.jpg",
-            "status": "ACTIVE",
-            "created_at": datetime.now().isoformat(),
-        },
-    ]
-    for d in demos:
-        _mock_assets[d["id"]] = d
+def _map_asset(row: dict) -> dict:
+    return {
+        "id": row.get("id"),
+        "client_id": row.get("client_id"),
+        "asset_type": row.get("asset_type") or "IMAGE",
+        "original_filename": row.get("original_filename") or "unknown",
+        "storage_url": row.get("storage_url") or "",
+        "thumbnail_url": row.get("thumbnail_url"),
+        "status": row.get("status") or "ACTIVE",
+        "created_at": row.get("created_at") or datetime.utcnow().isoformat(),
+    }
 
 
-if _demo_enabled():
-    _seed_demo_assets()
+def _try_storage_upload(file: UploadFile, asset_id: str, client_id: str) -> str:
+    bucket = os.getenv("SUPABASE_STORAGE_BUCKET", "assets")
+    filename = _safe_filename(file.filename or "upload.bin")
+    path = f"{client_id}/{asset_id}-{filename}"
+
+    file_bytes = file.file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    storage = _db().storage.from_(bucket)
+    storage.upload(path, file_bytes, {"content-type": file.content_type or "application/octet-stream", "upsert": "true"})
+    public_url = storage.get_public_url(path)
+    if isinstance(public_url, dict):
+        return public_url.get("publicUrl") or public_url.get("public_url") or path
+    return str(public_url)
 
 
 @router.get("/", response_model=List[AssetResponse])
 async def list_assets(client_id: Optional[str] = None):
-    """List assets, optionally filtered by client"""
-    assets = list(_mock_assets.values())
-    if client_id:
-        assets = [a for a in assets if a["client_id"] == client_id]
-    return assets
+    """List assets, optionally filtered by client."""
+    try:
+        query = _db().table("assets").select("*").order("created_at", desc=True)
+        if client_id:
+            query = query.eq("client_id", client_id)
+        res = query.execute()
+        return [_map_asset(row) for row in (res.data or [])]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list assets: {exc}") from exc
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
 async def get_asset(asset_id: str):
-    if asset_id not in _mock_assets:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return _mock_assets[asset_id]
+    try:
+        res = _db().table("assets").select("*").eq("id", asset_id).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return _map_asset(rows[0])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch asset: {exc}") from exc
 
 
 @router.post("/upload", response_model=AssetResponse)
@@ -80,35 +88,48 @@ async def upload_asset(
     asset_type: str = Form("IMAGE"),
     file: UploadFile = File(...),
 ):
-    """Upload a new asset (image or video)"""
+    """Upload a new asset and persist record."""
     asset_id = str(uuid.uuid4())
-    filename = file.filename or "unknown"
+    filename = _safe_filename(file.filename or "upload")
 
-    # In production: upload to Supabase Storage, extract video thumbnail with FFmpeg
-    asset = {
+    try:
+        storage_url = _try_storage_upload(file, asset_id, client_id)
+    except HTTPException:
+        raise
+    except Exception:
+        # Keep pipeline moving even if Storage bucket is not configured yet.
+        storage_url = f"/storage/assets/{asset_id}-{filename}"
+
+    row = {
         "id": asset_id,
         "client_id": client_id,
         "asset_type": asset_type,
         "original_filename": filename,
-        "storage_url": f"/storage/assets/{filename}",
-        "thumbnail_url": f"/storage/assets/{filename.rsplit('.', 1)[0]}-thumb.jpg"
-        if asset_type == "VIDEO"
-        else None,
-        "status": "PROCESSING",
-        "created_at": datetime.now().isoformat(),
+        "storage_url": storage_url,
+        "thumbnail_url": None,
+        "status": "ACTIVE",
     }
-    _mock_assets[asset_id] = asset
 
-    # Trigger async vectorization
-    # In production: vectorize_asset_task.delay(asset_id)
-    asset["status"] = "ACTIVE"
-
-    return asset
+    try:
+        res = _db().table("assets").insert(row).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=500, detail="Asset upload failed.")
+        return _map_asset(rows[0])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to persist asset: {exc}") from exc
 
 
 @router.delete("/{asset_id}")
 async def delete_asset(asset_id: str):
-    if asset_id not in _mock_assets:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    _mock_assets[asset_id]["status"] = "ARCHIVED"
-    return {"status": "archived", "asset_id": asset_id}
+    try:
+        res = _db().table("assets").update({"status": "ARCHIVED"}).eq("id", asset_id).execute()
+        if not (res.data or []):
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return {"status": "archived", "asset_id": asset_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to archive asset: {exc}") from exc

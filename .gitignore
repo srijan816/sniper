@@ -49,3 +49,6 @@ backend/.mypy_cache/
 backend/.ruff_cache/
 backend/**/*.pyc
 backend/*.sqlite3
+
+# private local runbooks
+DEPLOY_VPS_PRIVATE.md
