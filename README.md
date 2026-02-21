@@ -71,10 +71,10 @@ Use split workers so takedowns do not starve web/API resources:
 
 ```bash
 # Throttle Playwright-heavy takedowns
-celery -A app.celery_app.celery_app worker --loglevel=INFO -Q takedown -c 2 -n takedown@%h
+celery -A app.celery_app.celery_app worker --loglevel=INFO -Q takedown -c 2 -n takedown@%H
 
 # Discovery/vectorize/notifications worker
-celery -A app.celery_app.celery_app worker --loglevel=INFO -Q discovery,vectorize,notifications,default -c 2 -n general@%h
+celery -A app.celery_app.celery_app worker --loglevel=INFO -Q discovery,vectorize,notifications,default -c 2 -n general@%H
 ```
 
 ## Notes
