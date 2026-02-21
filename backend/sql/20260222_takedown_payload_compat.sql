@@ -15,3 +15,5 @@ END $$;
 ALTER TABLE public.takedowns
   ADD COLUMN IF NOT EXISTS rpa_payload jsonb;
 
+ALTER TABLE public.clients
+  ADD COLUMN IF NOT EXISTS loa_document_url text;
