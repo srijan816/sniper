@@ -89,6 +89,8 @@ def _derive_platform(host_domain: str) -> str:
     domain = (host_domain or "").lower()
     if any(name in domain for name in ("instagram.com", "facebook.com", "meta.com")):
         return "meta"
+    if "amazon." in domain:
+        return "amazon"
     return "shopify"
 
 

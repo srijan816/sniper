@@ -17,6 +17,10 @@ from PIL import Image, ImageDraw, ImageOps
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 import whois
+try:
+    from playwright_stealth import stealth_sync
+except Exception:  # pragma: no cover - optional dependency at runtime
+    stealth_sync = None
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
@@ -141,6 +145,71 @@ def _fetch_context(threat_id: str) -> dict:
     client = client_rows[0]
 
     return {"threat": threat, "asset": asset, "client": client}
+
+
+def _proxy_settings() -> dict | None:
+    settings = get_settings()
+
+    server = (settings.playwright_proxy_server or "").strip()
+    username = (settings.playwright_proxy_username or "").strip()
+    password = (settings.playwright_proxy_password or "").strip()
+    bypass = (settings.playwright_proxy_bypass or "").strip()
+
+    if not server and settings.zenrows_proxy_server and (
+        settings.zenrows_proxy_username or settings.zenrows_proxy_password
+    ):
+        server = (settings.zenrows_proxy_server or "").strip()
+        username = (settings.zenrows_proxy_username or "").strip()
+        password = (settings.zenrows_proxy_password or "").strip()
+
+    if not server:
+        return None
+
+    proxy = {"server": server}
+    if username:
+        proxy["username"] = username
+    if password:
+        proxy["password"] = password
+    if bypass:
+        proxy["bypass"] = bypass
+    return proxy
+
+
+def _open_hardened_page(playwright):
+    """
+    Create a stealth-enabled Playwright page with optional residential proxy routing.
+    """
+    settings = get_settings()
+
+    launch_kwargs = {
+        "headless": settings.playwright_headless,
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+        ],
+    }
+
+    proxy = _proxy_settings()
+    if proxy:
+        launch_kwargs["proxy"] = proxy
+
+    browser = playwright.chromium.launch(**launch_kwargs)
+    context = browser.new_context(
+        user_agent=settings.playwright_user_agent,
+        locale="en-US",
+        timezone_id="UTC",
+    )
+    page = context.new_page()
+
+    if settings.playwright_stealth_enabled and stealth_sync is not None:
+        try:
+            stealth_sync(page)
+        except Exception:
+            # Do not fail the workflow if stealth patching fails.
+            pass
+
+    return browser, context, page
 
 
 def _fill_first(page, selectors: list[str], value: str) -> bool:
@@ -362,9 +431,7 @@ def _capture_evidence(ctx: dict) -> dict:
         raise RuntimeError("Threat has no infringing_url; cannot capture evidence.")
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=settings.playwright_headless)
-        context = browser.new_context()
-        page = context.new_page()
+        browser, context, page = _open_hardened_page(playwright)
         try:
             page.goto(infringing_url, wait_until="domcontentloaded", timeout=90000)
             page.wait_for_timeout(1500)
@@ -456,6 +523,22 @@ def _is_shopify_listing(infringing_url: str, host_domain: str | None) -> bool:
     return any(marker in html for marker in markers)
 
 
+def _is_meta_listing(infringing_url: str, host_domain: str | None) -> bool:
+    domain = (host_domain or "").lower()
+    if any(name in domain for name in ("instagram.com", "facebook.com", "fb.com", "meta.com")):
+        return True
+    lowered = (infringing_url or "").lower()
+    return any(name in lowered for name in ("instagram.com", "facebook.com", "fb.com"))
+
+
+def _is_amazon_listing(infringing_url: str, host_domain: str | None) -> bool:
+    domain = (host_domain or "").lower()
+    if "amazon." in domain:
+        return True
+    lowered = (infringing_url or "").lower()
+    return "amazon." in lowered
+
+
 def _build_summary(original_url: str, infringing_url: str, loa_url: str, evidence_url: str) -> str:
     return (
         "I represent the rights holder and request removal of unauthorized copyrighted content. "
@@ -485,9 +568,7 @@ def _submit_shopify_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
     summary = _build_summary(original_url, infringing_url, loa_url, evidence["proof_pdf_url"])
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=settings.playwright_headless)
-        context = browser.new_context()
-        page = context.new_page()
+        browser, context, page = _open_hardened_page(playwright)
         loa_attached = False
         try:
             page.goto(form_url, wait_until="domcontentloaded", timeout=90000)
@@ -595,6 +676,116 @@ def _submit_shopify_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
         finally:
             context.close()
             browser.close()
+
+
+def _submit_meta_ip_report(ctx: dict, evidence: dict) -> SubmissionResult:
+    settings = get_settings()
+    threat = ctx["threat"]
+    asset = ctx["asset"]
+    client = ctx["client"]
+
+    if not settings.meta_access_token:
+        raise RuntimeError("META_ACCESS_TOKEN is required for Meta enforcement.")
+
+    infringing_url = threat.get("infringing_url") or ""
+    original_url = asset.get("thumbnail_url") or asset.get("storage_url") or ""
+    loa_url = client.get("loa_document_url") or ""
+    if not loa_url:
+        raise RuntimeError("Client LOA document is missing. Upload LOA before enforcement.")
+
+    endpoint = settings.meta_ip_report_endpoint
+    payload = {
+        "access_token": settings.meta_access_token,
+        "infringing_url": infringing_url,
+        "original_content_url": original_url,
+        "proof_document_url": evidence["proof_pdf_url"],
+        "loa_document_url": loa_url,
+        "reason": "copyright",
+    }
+
+    with httpx.Client(timeout=45.0) as client_http:
+        response = client_http.post(endpoint, data=payload)
+        response.raise_for_status()
+        response_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+
+    case_number = (
+        response_data.get("id")
+        or response_data.get("report_id")
+        or response_data.get("case_number")
+        or f"META-{uuid.uuid4().hex[:10].upper()}"
+    )
+
+    return SubmissionResult(
+        case_number=str(case_number),
+        payload={
+            "mode": "meta_ip_report_api",
+            "submitted_at": _utcnow_iso(),
+            "endpoint": endpoint,
+            "infringing_url": infringing_url,
+            "original_url": original_url,
+            "loa_url": loa_url,
+            "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+            "response": response_data,
+        },
+    )
+
+
+def _submit_amazon_brand_registry(ctx: dict, evidence: dict) -> SubmissionResult:
+    settings = get_settings()
+    threat = ctx["threat"]
+    asset = ctx["asset"]
+    client = ctx["client"]
+
+    if not settings.amazon_brand_registry_endpoint or not settings.amazon_brand_registry_api_key:
+        raise RuntimeError(
+            "AMAZON_BRAND_REGISTRY_ENDPOINT and AMAZON_BRAND_REGISTRY_API_KEY are required for Amazon enforcement."
+        )
+
+    infringing_url = threat.get("infringing_url") or ""
+    original_url = asset.get("thumbnail_url") or asset.get("storage_url") or ""
+    loa_url = client.get("loa_document_url") or ""
+    if not loa_url:
+        raise RuntimeError("Client LOA document is missing. Upload LOA before enforcement.")
+
+    body = {
+        "infringing_url": infringing_url,
+        "original_url": original_url,
+        "host_domain": threat.get("host_domain") or "",
+        "proof_document_url": evidence["proof_pdf_url"],
+        "loa_document_url": loa_url,
+        "client_name": client.get("company_name") or "",
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.amazon_brand_registry_api_key}",
+        "x-api-key": settings.amazon_brand_registry_api_key,
+        "Content-Type": "application/json",
+    }
+
+    with httpx.Client(timeout=45.0) as client_http:
+        response = client_http.post(settings.amazon_brand_registry_endpoint, headers=headers, json=body)
+        response.raise_for_status()
+        response_data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+
+    case_number = (
+        response_data.get("case_id")
+        or response_data.get("case_number")
+        or response_data.get("id")
+        or f"AMZ-{uuid.uuid4().hex[:10].upper()}"
+    )
+
+    return SubmissionResult(
+        case_number=str(case_number),
+        payload={
+            "mode": "amazon_brand_registry_api",
+            "submitted_at": _utcnow_iso(),
+            "endpoint": settings.amazon_brand_registry_endpoint,
+            "infringing_url": infringing_url,
+            "original_url": original_url,
+            "loa_url": loa_url,
+            "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+            "response": response_data,
+        },
+    )
 
 
 def _root_domain(host_domain: str) -> str:
@@ -715,16 +906,27 @@ def execute_takedown_task(takedown_id: str):
     client = context["client"]
 
     requested = (takedown.get("platform") or "").strip().lower()
-    if requested in {"shopify", "generic_email"}:
+    if requested in {"shopify", "meta", "amazon", "generic_email"}:
         platform = requested
     else:
-        platform = "shopify" if _is_shopify_listing(threat.get("infringing_url") or "", threat.get("host_domain")) else "generic_email"
+        if _is_meta_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+            platform = "meta"
+        elif _is_amazon_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+            platform = "amazon"
+        elif _is_shopify_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+            platform = "shopify"
+        else:
+            platform = "generic_email"
 
     try:
         evidence = _capture_evidence(context)
 
         if platform == "shopify":
             result = _submit_shopify_dmca(context, evidence)
+        elif platform == "meta":
+            result = _submit_meta_ip_report(context, evidence)
+        elif platform == "amazon":
+            result = _submit_amazon_brand_registry(context, evidence)
         else:
             result = _submit_generic_email_dmca(context, evidence)
 

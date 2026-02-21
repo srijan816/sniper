@@ -52,6 +52,18 @@ Copy `.env.example` to `.env` and fill required values.
 cp .env.example .env
 ```
 
+For hardened verification/RPA, set:
+- `HUGGINGFACE_EMBEDDING_BACKEND=local` (or `endpoint`)
+- Meta/Amazon/Playwright proxy env vars when those integrations are enabled
+
+## Database Migration
+
+Apply the hardening SQL before enabling workers:
+
+```bash
+psql "$SUPABASE_DB_URL" -f backend/sql/20260221_threat_atomicity.sql
+```
+
 ## Notes
 
 - Marketing routes live under `/` and `/pricing`.

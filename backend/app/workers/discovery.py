@@ -1,9 +1,7 @@
 """Discovery worker: SerpApi radar + whitelist + verification pipeline."""
 from __future__ import annotations
 
-from datetime import datetime
 from urllib.parse import urlparse
-import uuid
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
@@ -11,6 +9,7 @@ from app.core.database import get_supabase_client
 from app.services.blacklist_store import BadActorSignals, is_known_bad_actor, record_bad_actor
 from app.services.listing_intel import fetch_listing_intel
 from app.services.serpapi_service import filter_whitelisted, search_google_lens
+from app.services.threat_store import create_or_get_discovered_threat
 from app.services.vector_store import find_similar_assets
 from app.services.vision import embedding_from_image_url
 from app.workers.notifications import send_upgrade_email
@@ -43,28 +42,14 @@ def _already_known(asset_id: str, infringing_url: str) -> bool:
     return bool(rows)
 
 
-def _create_threat(asset_id: str, infringing_url: str, host_domain: str, similarity: float) -> str:
-    threat_id = str(uuid.uuid4())
-    _db().table("threats").insert(
-        {
-            "id": threat_id,
-            "asset_id": asset_id,
-            "infringing_url": infringing_url,
-            "host_domain": host_domain,
-            "similarity_score": similarity,
-            "status": "DISCOVERED",
-            "discovered_at": datetime.utcnow().isoformat(),
-        }
-    ).execute()
-    _db().table("audit_logs").insert(
-        {
-            "threat_id": threat_id,
-            "old_status": None,
-            "new_status": "DISCOVERED",
-            "changed_by": "SYSTEM",
-        }
-    ).execute()
-    return threat_id
+def _create_threat(asset_id: str, infringing_url: str, host_domain: str, similarity: float, client_id: str) -> tuple[str, bool]:
+    return create_or_get_discovered_threat(
+        asset_id=asset_id,
+        infringing_url=infringing_url,
+        host_domain=host_domain,
+        similarity_score=similarity,
+        client_id=client_id,
+    )
 
 
 def _safe_known_bad_actor(signals: BadActorSignals) -> bool:
@@ -174,14 +159,16 @@ def run_discovery_for_client(client_id: str):
             if blacklist_hit and stored_similarity < settings.similarity_threshold:
                 stored_similarity = settings.similarity_threshold + 0.01
 
-            _create_threat(
+            _, created_now = _create_threat(
                 asset_id=asset_id,
                 infringing_url=candidate.listing_url,
                 host_domain=_host(candidate.listing_url),
                 similarity=stored_similarity,
+                client_id=client_id,
             )
             _safe_record_bad_actor(actor_signals)
-            created += 1
+            if created_now:
+                created += 1
 
     if created:
         _db().table("clients").update({"current_month_count": current + created}).eq("id", client_id).execute()

@@ -50,6 +50,20 @@ def get_asset_embedding(asset_id: str) -> Optional[List[float]]:
             return [float(v) for v in raw.split(",")]
 
 
+def get_asset_phash(asset_id: str) -> Optional[str]:
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT phash FROM asset_embeddings WHERE asset_id = %s LIMIT 1",
+                (asset_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            phash = row[0]
+            return str(phash) if phash else None
+
+
 def find_similar_assets(
     embedding: List[float],
     *,

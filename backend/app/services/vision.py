@@ -4,6 +4,7 @@ from __future__ import annotations
 from io import BytesIO
 import math
 import tempfile
+import time
 from typing import Iterable, List
 
 import ffmpeg
@@ -12,6 +13,9 @@ import imagehash
 from PIL import Image
 
 from app.core.config import get_settings
+
+_LOCAL_MODEL = None
+_LOCAL_PROCESSOR = None
 
 
 def download_bytes(url: str, timeout: float = 30.0) -> bytes:
@@ -24,6 +28,13 @@ def download_bytes(url: str, timeout: float = 30.0) -> bytes:
 def compute_phash(image_bytes: bytes) -> str:
     with Image.open(BytesIO(image_bytes)) as image:
         return str(imagehash.phash(image))
+
+
+def phash_hamming_distance(phash_a: str, phash_b: str) -> int:
+    try:
+        return int(bin(int(phash_a, 16) ^ int(phash_b, 16)).count("1"))
+    except Exception as exc:
+        raise RuntimeError(f"Invalid pHash values for distance calculation: {exc}") from exc
 
 
 def extract_video_frame_bytes(video_url: str, timestamp_seconds: float = 3.0) -> bytes:
@@ -72,12 +83,33 @@ def _pool_features(features):
     return [value / count for value in sums]
 
 
-def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
-    """Generate SigLIP embedding via Hugging Face inference API."""
+def _post_with_retry(url: str, headers: dict, payload: bytes) -> list:
+    settings = get_settings()
+    retries = max(1, int(settings.embedding_request_retries or 3))
+    backoff = 1.2
+    last_error: Exception | None = None
+    with httpx.Client(timeout=120.0) as client:
+        for attempt in range(retries):
+            try:
+                response = client.post(url, headers=headers, content=payload)
+                if response.status_code in (408, 425, 429, 500, 502, 503, 504):
+                    raise RuntimeError(f"Transient embedding API failure: {response.status_code} {response.text[:300]}")
+                response.raise_for_status()
+                return response.json()
+            except Exception as exc:
+                last_error = exc
+                if attempt < retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 1.7
+                    continue
+                break
+    raise RuntimeError(f"Embedding API request failed after {retries} attempts: {last_error}")
+
+
+def _embedding_from_shared_inference(image_bytes: bytes) -> List[float]:
     settings = get_settings()
     if not settings.huggingface_api_token:
-        raise RuntimeError("HUGGINGFACE_API_TOKEN is required for vectorization.")
-
+        raise RuntimeError("HUGGINGFACE_API_TOKEN is required for shared Hugging Face inference.")
     endpoint = (
         f"https://api-inference.huggingface.co/pipeline/feature-extraction/"
         f"{settings.huggingface_embedding_model}"
@@ -86,13 +118,107 @@ def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
         "Authorization": f"Bearer {settings.huggingface_api_token}",
         "Content-Type": "application/octet-stream",
     }
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(endpoint, headers=headers, content=image_bytes)
-        response.raise_for_status()
-        payload = response.json()
-
+    payload = _post_with_retry(endpoint, headers, image_bytes)
     pooled = _pool_features(payload)
     return _normalize_embedding(pooled)
+
+
+def _embedding_from_dedicated_endpoint(image_bytes: bytes) -> List[float]:
+    settings = get_settings()
+    if not settings.huggingface_inference_endpoint_url:
+        raise RuntimeError("HUGGINGFACE_INFERENCE_ENDPOINT_URL is required for endpoint embedding backend.")
+
+    token = settings.huggingface_inference_endpoint_token or settings.huggingface_api_token
+    headers = {"Content-Type": "application/octet-stream"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    payload = _post_with_retry(settings.huggingface_inference_endpoint_url, headers, image_bytes)
+    pooled = _pool_features(payload)
+    return _normalize_embedding(pooled)
+
+
+def _get_local_siglip():
+    global _LOCAL_MODEL, _LOCAL_PROCESSOR
+    if _LOCAL_MODEL is not None and _LOCAL_PROCESSOR is not None:
+        return _LOCAL_MODEL, _LOCAL_PROCESSOR
+
+    try:
+        from transformers import AutoModel, AutoProcessor
+    except Exception as exc:
+        raise RuntimeError("Local embedding backend requires `transformers`.") from exc
+
+    model_name = get_settings().huggingface_embedding_model
+    _LOCAL_PROCESSOR = AutoProcessor.from_pretrained(model_name)
+    _LOCAL_MODEL = AutoModel.from_pretrained(model_name)
+    _LOCAL_MODEL.eval()
+    return _LOCAL_MODEL, _LOCAL_PROCESSOR
+
+
+def _embedding_from_local_model(image_bytes: bytes) -> List[float]:
+    try:
+        import torch
+    except Exception as exc:
+        raise RuntimeError("Local embedding backend requires `torch`.") from exc
+
+    model, processor = _get_local_siglip()
+    with Image.open(BytesIO(image_bytes)) as image:
+        rgb = image.convert("RGB")
+    inputs = processor(images=rgb, return_tensors="pt")
+    with torch.no_grad():
+        if hasattr(model, "get_image_features"):
+            outputs = model.get_image_features(**inputs)
+        else:
+            raw = model(**inputs)
+            last_hidden = getattr(raw, "last_hidden_state", None)
+            if last_hidden is None:
+                raise RuntimeError("SigLIP local model returned an unsupported output shape.")
+            outputs = last_hidden.mean(dim=1)
+
+    vector = outputs[0].detach().cpu().tolist()
+    return _normalize_embedding(vector)
+
+
+def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
+    """
+    Generate SigLIP embedding using configured backend.
+
+    Backends:
+      - local: in-worker Transformers inference (default)
+      - endpoint: dedicated Hugging Face Inference Endpoint
+      - shared: legacy shared Hugging Face API
+      - auto: local -> endpoint -> shared(optional)
+    """
+    settings = get_settings()
+    backend = (settings.huggingface_embedding_backend or "local").strip().lower()
+    errors: list[str] = []
+
+    def _try(label: str, fn):
+        try:
+            return fn()
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+            return None
+
+    if backend in {"local", "auto"}:
+        result = _try("local", lambda: _embedding_from_local_model(image_bytes))
+        if result is not None:
+            return result
+
+    if backend in {"endpoint", "auto"}:
+        result = _try("endpoint", lambda: _embedding_from_dedicated_endpoint(image_bytes))
+        if result is not None:
+            return result
+
+    if backend == "shared" or (backend in {"local", "endpoint", "auto"} and settings.huggingface_allow_shared_fallback):
+        result = _try("shared", lambda: _embedding_from_shared_inference(image_bytes))
+        if result is not None:
+            return result
+
+    raise RuntimeError(
+        "Embedding generation failed for all configured backends. "
+        f"Backend={backend}. Errors={' | '.join(errors)}"
+    )
 
 
 def embedding_from_image_url(image_url: str) -> List[float]:

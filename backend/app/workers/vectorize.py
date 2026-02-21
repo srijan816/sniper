@@ -82,3 +82,10 @@ def similarity_for_candidate(asset_id: str, candidate_image_url: str) -> float:
     asset_embedding = ensure_asset_vectorized(asset_id)
     candidate_embedding = embedding_from_image_url(candidate_image_url)
     return float(cosine_similarity(asset_embedding, candidate_embedding))
+
+
+def similarity_for_candidate_bytes(asset_id: str, candidate_image_bytes: bytes) -> float:
+    """Compute cosine similarity using already-downloaded candidate image bytes."""
+    asset_embedding = ensure_asset_vectorized(asset_id)
+    candidate_embedding = embedding_from_image_bytes(candidate_image_bytes)
+    return float(cosine_similarity(asset_embedding, candidate_embedding))
