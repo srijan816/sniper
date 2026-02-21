@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     growth_threat_limit: int = 500
     agency_threat_limit: int = 5000
 
+    # Test Mode
+    takedown_test_mode_no_submit: bool = False
+
     model_config = SettingsConfigDict(
         env_file="../.env",
         env_file_encoding="utf-8",

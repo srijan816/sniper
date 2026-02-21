@@ -656,6 +656,23 @@ def _submit_shopify_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
                 captcha_token = _solve_recaptcha_v2(site_key, page.url)
                 _inject_recaptcha_token(page, captcha_token)
 
+            if settings.takedown_test_mode_no_submit:
+                page.screenshot(path="pre_submit_test_mode.png", full_page=True)
+                case_number = f"TEST-SHP-{uuid.uuid4().hex[:10].upper()}"
+                payload = {
+                    "mode": "shopify_form_test_mode",
+                    "form_url": form_url,
+                    "final_url": page.url,
+                    "submitted_at": _utcnow_iso(),
+                    "infringing_url": infringing_url,
+                    "original_url": original_url,
+                    "loa_url": loa_url,
+                    "loa_attached": loa_attached,
+                    "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+                    "test_mode": True,
+                }
+                return SubmissionResult(case_number=case_number, payload=payload)
+
             if not _click_first(page, [
                 "button[type='submit']",
                 "input[type='submit']",
@@ -730,6 +747,21 @@ def _submit_meta_ip_report(ctx: dict, evidence: dict) -> SubmissionResult:
         "reason": "copyright",
     }
 
+    if settings.takedown_test_mode_no_submit:
+        return SubmissionResult(
+            case_number=f"TEST-META-{uuid.uuid4().hex[:10].upper()}",
+            payload={
+                "mode": "meta_ip_report_api_test_mode",
+                "submitted_at": _utcnow_iso(),
+                "endpoint": endpoint,
+                "infringing_url": infringing_url,
+                "original_url": original_url,
+                "loa_url": loa_url,
+                "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+                "test_mode": True,
+            },
+        )
+
     with httpx.Client(timeout=45.0) as client_http:
         response = client_http.post(endpoint, data=payload)
         response.raise_for_status()
@@ -787,6 +819,21 @@ def _submit_amazon_brand_registry(ctx: dict, evidence: dict) -> SubmissionResult
         "x-api-key": settings.amazon_brand_registry_api_key,
         "Content-Type": "application/json",
     }
+
+    if settings.takedown_test_mode_no_submit:
+        return SubmissionResult(
+            case_number=f"TEST-AMZ-{uuid.uuid4().hex[:10].upper()}",
+            payload={
+                "mode": "amazon_brand_registry_api_test_mode",
+                "submitted_at": _utcnow_iso(),
+                "endpoint": settings.amazon_brand_registry_endpoint,
+                "infringing_url": infringing_url,
+                "original_url": original_url,
+                "loa_url": loa_url,
+                "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+                "test_mode": True,
+            },
+        )
 
     with httpx.Client(timeout=45.0) as client_http:
         response = client_http.post(settings.amazon_brand_registry_endpoint, headers=headers, json=body)
@@ -900,6 +947,21 @@ def _submit_generic_email_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
     )
 
     cc = [client.get("legal_contact_email")] if client.get("legal_contact_email") else None
+    
+    settings = get_settings()
+    if settings.takedown_test_mode_no_submit:
+        payload = {
+            "mode": "generic_email_test_mode",
+            "submitted_at": _utcnow_iso(),
+            "infringing_url": infringing_url,
+            "original_url": original_url,
+            "loa_url": loa_url,
+            "recipients": recipients,
+            "evidence_proof_pdf_url": evidence["proof_pdf_url"],
+            "test_mode": True,
+        }
+        return SubmissionResult(case_number=f"TEST-EML-{uuid.uuid4().hex[:10].upper()}", payload=payload)
+
     send_generic_dmca_notice(recipients, subject, html, cc_emails=cc)
 
     payload = {
