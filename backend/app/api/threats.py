@@ -32,15 +32,16 @@ def _map_threat(row: dict, client_id: Optional[str]) -> dict:
         "asset_id": row.get("asset_id"),
         "client_id": client_id or "unknown-client",
         "infringing_url": row.get("infringing_url") or "",
-        "infringing_image_url": None,
+        "infringing_image_url": row.get("infringing_image_url"),
         "host_domain": row.get("host_domain") or "",
-        "seller_name": None,
-        "listing_title": None,
-        "listing_price": None,
+        "seller_name": row.get("seller_name"),
+        "listing_title": row.get("listing_title"),
+        "listing_price": row.get("listing_price"),
         "similarity_score": row.get("similarity_score") or 0.0,
+        "ai_explanation": row.get("ai_explanation"),
         "status": row.get("status") or "DISCOVERED",
         "discovered_at": row.get("discovered_at") or datetime.utcnow().isoformat(),
-        "resolved_at": None,
+        "resolved_at": row.get("resolved_at"),
     }
 
 

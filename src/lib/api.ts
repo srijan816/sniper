@@ -18,6 +18,7 @@ export type Threat = {
   similarity_score: number;
   status: ThreatStatus;
   discovered_at: string;
+  ai_explanation?: string | null;
   resolved_at?: string | null;
 };
 

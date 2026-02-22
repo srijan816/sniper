@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
-import { Check, ExternalLink, Search, ShieldCheck, X } from "lucide-react";
+import { Check, ExternalLink, Search, ShieldCheck, X, Sparkles } from "lucide-react";
 import { StatusBadge } from "@/components/app/status-badge";
 import { SniperChevron } from "@/components/app/sniper-chevron";
 import {
@@ -345,6 +345,41 @@ export default function ThreatInboxPage() {
             </div>
 
             <div className="space-y-6 p-5">
+              <section className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <p className="text-app-xs font-semibold uppercase tracking-wider text-muted-foreground">Protected Asset</p>
+                    <div className="relative aspect-square w-full overflow-hidden rounded-md border bg-muted">
+                      <img
+                        src={assets[selectedThreat.asset_id]?.thumbnail_url || assets[selectedThreat.asset_id]?.storage_url || "/hero-dashboard.webp"}
+                        alt="Protected Asset"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-app-xs font-semibold uppercase tracking-wider text-destructive">Detected Counterfeit</p>
+                    <div className="relative aspect-square w-full overflow-hidden rounded-md border border-destructive/20 bg-muted">
+                      <img
+                        src={selectedThreat.infringing_image_url || "/logo-dark.png"}
+                        alt="Counterfeit Listing"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {selectedThreat.ai_explanation ? (
+                <section className="rounded-md border border-sniper-green/30 bg-sniper-green/5 p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[#0A7C2E]" />
+                    <h3 className="font-heading text-app-base font-semibold text-sniper-charcoal">Verification Reasoning</h3>
+                  </div>
+                  <p className="whitespace-pre-wrap text-app-sm leading-relaxed text-muted-foreground">{selectedThreat.ai_explanation}</p>
+                </section>
+              ) : null}
+
               <section className="space-y-3 rounded-md border p-4">
                 <div className="grid grid-cols-[120px_1fr] gap-2 text-app-sm">
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Status</p>
@@ -352,7 +387,7 @@ export default function ThreatInboxPage() {
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Threat ID</p>
                   <p className="font-mono">{selectedThreat.id}</p>
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Infringing URL</p>
-                  <Link href={selectedThreat.infringing_url} target="_blank" className="font-mono text-app-xs underline">
+                  <Link href={selectedThreat.infringing_url} target="_blank" className="font-mono text-app-xs underline truncate block max-w-full">
                     {selectedThreat.infringing_url}
                   </Link>
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Host Domain</p>

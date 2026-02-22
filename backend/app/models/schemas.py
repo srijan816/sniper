@@ -108,6 +108,7 @@ class ThreatCreate(BaseModel):
     listing_title: Optional[str] = None
     listing_price: Optional[float] = None
     similarity_score: float
+    ai_explanation: Optional[str] = None
 
 
 class ThreatResponse(BaseModel):
@@ -121,6 +122,7 @@ class ThreatResponse(BaseModel):
     listing_title: Optional[str] = None
     listing_price: Optional[float] = None
     similarity_score: float
+    ai_explanation: Optional[str] = None
     status: ThreatStatus
     discovered_at: datetime
     resolved_at: Optional[datetime] = None

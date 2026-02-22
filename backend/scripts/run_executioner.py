@@ -22,9 +22,9 @@ def main():
         "id": asset_id,
         "client_id": CLIENT_ID,
         "asset_type": "IMAGE",
-        "original_filename": "gymshark_test.jpg",
-        "storage_url": ASSET_URL,
-        "status": "ACTIVE", # Don't need to actually have real image, just bypass vectorize
+        "original_filename": "gymshark_apex_seamless_authentic.jpg",
+        "storage_url": "https://cdn.shopify.com/s/files/1/0156/6146/products/ApexSeamlessT-ShirtBlackB2A5M-BBBB156_3840x.jpg",
+        "status": "ACTIVE",
     }).execute()
     
     # 2. Inject Threat directly
@@ -35,9 +35,11 @@ def main():
         "asset_id": asset_id,
         "client_id": CLIENT_ID,
         "infringing_url": BENIGN_SHOPIFY_URL,
+        "infringing_image_url": "https://cdn.shopify.com/s/files/1/0156/6146/products/ApexSeamlessT-ShirtBlackB2A5M-BBBB156_3840x.jpg", # Uses similar image for realistic demo
         "host_domain": "www.gymshark.com",
-        "similarity_score": 0.99,
-        "status": "VERIFIED"
+        "similarity_score": 99.1,
+        "status": "APPROVED",
+        "ai_explanation": "The detected listing image is a 99.1% cosmetic match to the protected asset. Structural similarities include identical pocket placement, exact fabric drape mapping, and replicated collar stitching. The proprietary 'Apex Seamless' geometric knit pattern remains completely intact in the source image structure. The listing price is anomalously low compared to MSRP, strongly corroborating counterfeit status."
     }).execute()
     
     # 3. Queue Takedown
