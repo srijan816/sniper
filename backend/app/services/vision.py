@@ -7,6 +7,7 @@ import tempfile
 import time
 from typing import Iterable, List
 
+import base64
 import ffmpeg
 import httpx
 import imagehash
@@ -155,70 +156,53 @@ def _get_local_siglip():
     return _LOCAL_MODEL, _LOCAL_PROCESSOR
 
 
-def _embedding_from_local_model(image_bytes: bytes) -> List[float]:
-    try:
-        import torch
-    except Exception as exc:
-        raise RuntimeError("Local embedding backend requires `torch`.") from exc
-
-    model, processor = _get_local_siglip()
-    with Image.open(BytesIO(image_bytes)) as image:
-        rgb = image.convert("RGB")
-    inputs = processor(images=rgb, return_tensors="pt")
-    with torch.no_grad():
-        if hasattr(model, "get_image_features"):
-            outputs = model.get_image_features(**inputs)
-        else:
-            raw = model(**inputs)
-            last_hidden = getattr(raw, "last_hidden_state", None)
-            if last_hidden is None:
-                raise RuntimeError("SigLIP local model returned an unsupported output shape.")
-            outputs = last_hidden.mean(dim=1)
-
-    vector = outputs[0].detach().cpu().tolist()
+def _embedding_from_openai(image_bytes: bytes) -> List[float]:
+    import openai
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is required for OpenAI vision embeddings.")
+    
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    prompt = "Describe this e-commerce product in extreme detail, focusing on brand, model, color, shape, materials, and defining features. The goal is to uniquely identify this exact product among counterfeits."
+    
+    client = openai.OpenAI(api_key=settings.openai_api_key)
+    
+    # 1. Vision - semantic extraction
+    vision_resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
+                ]
+            }
+        ],
+        max_tokens=300
+    )
+    description = vision_resp.choices[0].message.content
+    if not description:
+        raise RuntimeError("OpenAI Vision failed to return a valid description.")
+        
+    # 2. Embedding - dimensional encoding (1536d)
+    embed_resp = client.embeddings.create(
+        input=description,
+        model="text-embedding-3-small"
+    )
+    vector = embed_resp.data[0].embedding
     return _normalize_embedding(vector)
 
 
 def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
     """
-    Generate SigLIP embedding using configured backend.
-
-    Backends:
-      - local: in-worker Transformers inference (default)
-      - endpoint: dedicated Hugging Face Inference Endpoint
-      - shared: legacy shared Hugging Face API
-      - auto: local -> endpoint -> shared(optional)
+    Generate OpenAI text-embedding-3-small embedding using gpt-4o-mini vision descriptions.
     """
-    settings = get_settings()
-    backend = (settings.huggingface_embedding_backend or "local").strip().lower()
-    errors: list[str] = []
-
-    def _try(label: str, fn):
-        try:
-            return fn()
-        except Exception as exc:
-            errors.append(f"{label}: {exc}")
-            return None
-
-    if backend in {"local", "auto"}:
-        result = _try("local", lambda: _embedding_from_local_model(image_bytes))
-        if result is not None:
-            return result
-
-    if backend in {"endpoint", "auto"}:
-        result = _try("endpoint", lambda: _embedding_from_dedicated_endpoint(image_bytes))
-        if result is not None:
-            return result
-
-    if backend == "shared" or (backend in {"local", "endpoint", "auto"} and settings.huggingface_allow_shared_fallback):
-        result = _try("shared", lambda: _embedding_from_shared_inference(image_bytes))
-        if result is not None:
-            return result
-
-    raise RuntimeError(
-        "Embedding generation failed for all configured backends. "
-        f"Backend={backend}. Errors={' | '.join(errors)}"
-    )
+    try:
+        # We enforce OpenAI end-to-end to generate the 1536-D embedding
+        return _embedding_from_openai(image_bytes)
+    except Exception as exc:
+        raise RuntimeError(f"Embedding generation failed. Error: {exc}")
 
 
 def embedding_from_image_url(image_url: str) -> List[float]:

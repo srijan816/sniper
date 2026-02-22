@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     # HuggingFace
     huggingface_api_token: str = ""
+
+    # OpenAI
+    openai_api_key: str = ""
     huggingface_embedding_model: str = "google/siglip-base-patch16-224"
     huggingface_embedding_backend: str = "endpoint"  # local | endpoint | shared | auto
     huggingface_inference_endpoint_url: str = ""
