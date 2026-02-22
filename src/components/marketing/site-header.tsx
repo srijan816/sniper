@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { ChevronIcon } from "@/components/marketing/chevron-icon";
 import { Logomark } from "@/components/marketing/logomark";
+import { cn } from "@/lib/utils";
 
 const navLinks = [
   { href: "/#how-it-works", label: "How It Works" },
@@ -17,7 +18,7 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#E2E8F0] bg-white/80 backdrop-blur-md">
+    <header className={cn("sticky top-0 z-50 border-b border-[#E2E8F0]", open ? "bg-white" : "bg-white/80 backdrop-blur-md")}>
       <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-6">
         <Link href="/" aria-label="SniperIP Home" className="hidden items-center md:flex">
           <Image
@@ -35,7 +36,14 @@ export function SiteHeader() {
           aria-label="SniperIP Home"
           className="inline-flex items-center text-[#1A1C24] md:hidden"
         >
-          <Logomark className="h-9 w-9" />
+          <Image
+            src="/logo-dark.png"
+            alt="SniperIP"
+            width={240}
+            height={240}
+            className="h-10 w-auto"
+            priority
+          />
         </Link>
 
         <nav className="hidden items-center gap-8 md:flex">
