@@ -236,10 +236,16 @@ export default function ThreatInboxPage() {
                 return (
                   <tr key={threat.id} onClick={() => void openThreat(threat)} className="cursor-pointer border-t bg-white transition hover:bg-sniper-pearl">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <img src={originalImage} alt={asset?.original_filename || threat.asset_id} className="h-12 w-12 rounded-sm border object-cover" />
-                        <span className="text-app-xs text-muted-foreground">vs</span>
-                        <img src={infringingImage} alt={`Infringing listing from ${threat.host_domain}`} className="h-12 w-12 rounded-sm border object-cover" />
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Protected</span>
+                          <img src={originalImage} alt={asset?.original_filename || threat.asset_id} className="h-10 w-10 rounded-sm border object-cover" />
+                        </div>
+                        <span className="text-[10px] font-medium text-muted-foreground">vs</span>
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-destructive">Imitation</span>
+                          <img src={infringingImage} alt={`Infringing listing from ${threat.host_domain}`} className="h-10 w-10 rounded-sm border border-destructive/20 object-cover" />
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">

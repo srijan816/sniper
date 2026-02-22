@@ -9,7 +9,7 @@ from app.workers.takedown import queue_takedown
 
 CLIENT_ID = "9ed16bde-39bd-497e-9996-d0528aa09981"  # User 'srijan816@gmail.com'
 # A benign, actual Shopify store that uses standard Shopify infrastructure
-BENIGN_SHOPIFY_URL = "https://www.gymshark.com/products/gymshark-apex-seamless-t-shirt-black-aw21"
+BENIGN_SHOPIFY_URL = "https://www.gymshark.com/collections/t-shirts/mens"
 ASSET_URL = "https://example.com/asset.jpg"
 
 def main():
