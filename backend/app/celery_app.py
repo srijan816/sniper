@@ -40,11 +40,11 @@ celery_app.conf.update(
     # Retry policy
     task_default_retry_delay=60,
     task_max_retries=5,
-    # Beat schedule for periodic discovery
+    # Beat schedule for periodic discovery (Fan-Out strategy)
     beat_schedule={
-        "run-discovery-tick": {
-            "task": "app.workers.discovery.run_discovery_tick",
-            "schedule": float(settings.discovery_tick_interval_seconds),  # Default: every 15 minutes
+        "run-discovery-all": {
+            "task": "app.workers.discovery.run_discovery_all",
+            "schedule": 7200.0,  # Fan-out to all clients every 2 hours
         },
     },
 )

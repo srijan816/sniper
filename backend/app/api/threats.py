@@ -3,11 +3,12 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AuditLogResponse, ThreatResponse
 from app.workers.takedown import queue_takedown
+from app.api.deps import get_current_client_id
 
 router = APIRouter()
 
@@ -97,10 +98,10 @@ def _derive_platform(host_domain: str) -> str:
 
 @router.get("/", response_model=List[ThreatResponse])
 async def list_threats(
-    client_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    client_id: str = Depends(get_current_client_id),
 ):
     """List threats with optional filtering."""
     try:
@@ -133,6 +134,7 @@ async def list_audit_logs(
     threat_id: Optional[str] = None,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    client_id: str = Depends(get_current_client_id),
 ):
     try:
         query = _db().table("audit_logs").select("*").order("changed_at", desc=True).range(offset, offset + limit - 1)
@@ -145,7 +147,7 @@ async def list_audit_logs(
 
 
 @router.get("/{threat_id}", response_model=ThreatResponse)
-async def get_threat(threat_id: str):
+async def get_threat(threat_id: str, client_id: str = Depends(get_current_client_id)):
     try:
         db = _db()
         res = db.table("threats").select("*").eq("id", threat_id).limit(1).execute()
@@ -162,7 +164,7 @@ async def get_threat(threat_id: str):
 
 
 @router.post("/{threat_id}/approve", response_model=ThreatResponse)
-async def approve_threat(threat_id: str):
+async def approve_threat(threat_id: str, client_id: str = Depends(get_current_client_id)):
     """Client approves a threat for takedown — AUDIT LOGGED."""
     try:
         db = _db()
@@ -199,7 +201,7 @@ async def approve_threat(threat_id: str):
 
 
 @router.post("/{threat_id}/whitelist", response_model=ThreatResponse)
-async def whitelist_threat(threat_id: str):
+async def whitelist_threat(threat_id: str, client_id: str = Depends(get_current_client_id)):
     """Client whitelists a threat (false positive) — AUDIT LOGGED."""
     try:
         db = _db()
@@ -221,7 +223,7 @@ async def whitelist_threat(threat_id: str):
 
 
 @router.post("/{threat_id}/reject", response_model=ThreatResponse)
-async def reject_threat(threat_id: str):
+async def reject_threat(threat_id: str, client_id: str = Depends(get_current_client_id)):
     """Client rejects a threat — AUDIT LOGGED."""
     try:
         db = _db()
@@ -243,7 +245,7 @@ async def reject_threat(threat_id: str):
 
 
 @router.get("/{threat_id}/audit-trail", response_model=List[AuditLogResponse])
-async def get_audit_trail(threat_id: str):
+async def get_audit_trail(threat_id: str, client_id: str = Depends(get_current_client_id)):
     """Get the complete audit trail for a threat."""
     try:
         res = _db().table("audit_logs").select("*").eq("threat_id", threat_id).order("changed_at", desc=False).execute()

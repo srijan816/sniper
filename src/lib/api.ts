@@ -62,12 +62,28 @@ export type AuditLog = {
   changed_at: string;
 };
 
+import { createBrowserSupabaseClient } from "./supabase/client";
+
 const rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 const normalizedBackendUrl = rawBackendUrl.replace(/\/$/, "");
 const API_BASE = normalizedBackendUrl.endsWith("/api") ? normalizedBackendUrl : `${normalizedBackendUrl}/api`;
 
 function apiUrl(path: string) {
   return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function authenticatedFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const supabase = createBrowserSupabaseClient();
+  const headers = new Headers(options.headers || {});
+
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      headers.set("Authorization", `Bearer ${data.session.access_token}`);
+    }
+  }
+
+  return fetch(apiUrl(path), { ...options, headers });
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -85,12 +101,12 @@ export function normalizeThreatStatus(status: string): string {
 }
 
 export async function listThreats() {
-  const response = await fetch(apiUrl("/threats"), { cache: "no-store" });
+  const response = await authenticatedFetch("/threats", { cache: "no-store" });
   return parseJson<Threat[]>(response);
 }
 
 export async function approveThreat(threatId: string) {
-  const response = await fetch(apiUrl(`/threats/${threatId}/approve`), {
+  const response = await authenticatedFetch(`/threats/${threatId}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -98,7 +114,7 @@ export async function approveThreat(threatId: string) {
 }
 
 export async function whitelistThreat(threatId: string) {
-  const response = await fetch(apiUrl(`/threats/${threatId}/whitelist`), {
+  const response = await authenticatedFetch(`/threats/${threatId}/whitelist`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -106,27 +122,26 @@ export async function whitelistThreat(threatId: string) {
 }
 
 export async function listThreatAuditLogs(threatId: string) {
-  const response = await fetch(apiUrl(`/threats/${threatId}/audit-trail`), { cache: "no-store" });
+  const response = await authenticatedFetch(`/threats/${threatId}/audit-trail`, { cache: "no-store" });
   return parseJson<AuditLog[]>(response);
 }
 
 export async function listAuditLogs(limit = 200) {
-  const response = await fetch(apiUrl(`/threats/audit-logs?limit=${limit}`), { cache: "no-store" });
+  const response = await authenticatedFetch(`/threats/audit-logs?limit=${limit}`, { cache: "no-store" });
   return parseJson<AuditLog[]>(response);
 }
 
 export async function listAssets() {
-  const response = await fetch(apiUrl("/assets"), { cache: "no-store" });
+  const response = await authenticatedFetch("/assets", { cache: "no-store" });
   return parseJson<Asset[]>(response);
 }
 
-export async function uploadAsset(file: File, assetType: "IMAGE" | "VIDEO", clientId = "self-serve-client") {
+export async function uploadAsset(file: File, assetType: "IMAGE" | "VIDEO") {
   const formData = new FormData();
-  formData.append("client_id", clientId);
   formData.append("asset_type", assetType);
   formData.append("file", file);
 
-  const response = await fetch(apiUrl("/assets/upload"), {
+  const response = await authenticatedFetch("/assets/upload", {
     method: "POST",
     body: formData,
   });
@@ -134,11 +149,11 @@ export async function uploadAsset(file: File, assetType: "IMAGE" | "VIDEO", clie
 }
 
 export async function listTakedowns() {
-  const response = await fetch(apiUrl("/takedown"), { cache: "no-store" });
+  const response = await authenticatedFetch("/takedown", { cache: "no-store" });
   return parseJson<Takedown[]>(response);
 }
 
 export async function listClients() {
-  const response = await fetch(apiUrl("/clients"), { cache: "no-store" });
+  const response = await authenticatedFetch("/clients", { cache: "no-store" });
   return parseJson<Client[]>(response);
 }

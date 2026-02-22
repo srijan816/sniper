@@ -3,11 +3,12 @@ from datetime import datetime
 from typing import List
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from app.core.database import get_supabase_client
 from app.models.schemas import TakedownCreate, TakedownResponse
 from app.workers.takedown import queue_takedown
+from app.api.deps import get_current_client_id
 
 router = APIRouter()
 
@@ -103,15 +104,22 @@ async def get_takedown(takedown_id: str):
 
 
 @router.get("/", response_model=List[TakedownResponse])
-async def list_takedowns(threat_id: str = None):
+async def list_takedowns(client_id: str = Depends(get_current_client_id)):
+    """List takedown requests, heavily isolated by tenant context."""
+    db = _db()
+    
+    # Securely retrieve the list of threat IDs that belong strictly to this client_id
+    threats_res = db.table("threats").select("id").eq("client_id", client_id).execute()
+    threat_ids = [row["id"] for row in (threats_res.data or []) if row.get("id")]
+    
+    if not threat_ids:
+        return []
+        
     try:
-        def _query(table_name: str):
-            query = _db().table(table_name).select("*").order("submitted_at", desc=True)
-            if threat_id:
-                query = query.eq("threat_id", threat_id)
-            return query.execute()
+        def _load_all(table_name: str):
+            res = db.table(table_name).select("*").in_("threat_id", threat_ids).order("created_at", desc=True).execute()
+            return [_map_takedown(row) for row in (res.data or [])]
 
-        res = _with_takedown_table(_query)
-        return [_map_takedown(row) for row in (res.data or [])]
+        return _with_takedown_table(_load_all)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list takedowns: {exc}") from exc

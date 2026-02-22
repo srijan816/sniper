@@ -5,11 +5,12 @@ import re
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AssetResponse
 from app.workers.vectorize import vectorize_asset_task
+from app.api.deps import get_current_client_id
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ def _try_storage_upload(file: UploadFile, asset_id: str, client_id: str) -> str:
 
 
 @router.get("/", response_model=List[AssetResponse])
-async def list_assets(client_id: Optional[str] = None):
+async def list_assets(client_id: str = Depends(get_current_client_id)):
     """List assets, optionally filtered by client."""
     try:
         query = _db().table("assets").select("*").order("created_at", desc=True)
@@ -70,7 +71,7 @@ async def list_assets(client_id: Optional[str] = None):
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
-async def get_asset(asset_id: str):
+async def get_asset(asset_id: str, client_id: str = Depends(get_current_client_id)):
     try:
         res = _db().table("assets").select("*").eq("id", asset_id).limit(1).execute()
         rows = res.data or []
@@ -85,9 +86,9 @@ async def get_asset(asset_id: str):
 
 @router.post("/upload", response_model=AssetResponse)
 async def upload_asset(
-    client_id: str = Form(...),
     asset_type: str = Form("IMAGE"),
     file: UploadFile = File(...),
+    client_id: str = Depends(get_current_client_id),
 ):
     """Upload a new asset and persist record."""
     asset_id = str(uuid.uuid4())
@@ -133,9 +134,9 @@ async def upload_asset(
 
 
 @router.delete("/{asset_id}")
-async def delete_asset(asset_id: str):
+async def delete_asset(asset_id: str, client_id: str = Depends(get_current_client_id)):
     try:
-        res = _db().table("assets").update({"status": "ARCHIVED"}).eq("id", asset_id).execute()
+        res = _db().table("assets").update({"status": "ARCHIVED"}).eq("id", asset_id).eq("client_id", client_id).execute()
         if not (res.data or []):
             raise HTTPException(status_code=404, detail="Asset not found")
         return {"status": "archived", "asset_id": asset_id}

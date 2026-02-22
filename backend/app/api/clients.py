@@ -5,11 +5,12 @@ import re
 import uuid
 from typing import List
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
 from app.models.schemas import ClientAnalytics, ClientCreate, ClientResponse
+from app.api.deps import get_current_client_id
 
 router = APIRouter()
 
@@ -42,17 +43,17 @@ def _safe_filename(filename: str) -> str:
 
 
 @router.get("/", response_model=List[ClientResponse])
-async def list_clients():
-    """List all clients (service role API for now)."""
+async def list_clients(client_id: str = Depends(get_current_client_id)):
+    """List authenticated client."""
     try:
-        res = _db().table("clients").select("*").order("created_at", desc=True).execute()
+        res = _db().table("clients").select("*").eq("id", client_id).limit(1).execute()
         return [_map_client(row) for row in (res.data or [])]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list clients: {exc}") from exc
 
 
 @router.get("/{client_id}", response_model=ClientResponse)
-async def get_client(client_id: str):
+async def get_client(client_id: str = Depends(get_current_client_id)):
     """Get a client by ID."""
     try:
         res = _db().table("clients").select("*").eq("id", client_id).limit(1).execute()
@@ -92,7 +93,10 @@ async def create_client(data: ClientCreate):
 
 
 @router.post("/{client_id}/loa-upload")
-async def upload_loa_document(client_id: str, file: UploadFile = File(...)):
+async def upload_loa_document(
+    file: UploadFile = File(...),
+    client_id: str = Depends(get_current_client_id),
+):
     """Upload a signed Letter of Authorization (LOA) and store public URL."""
     settings = get_settings()
     bucket = settings.loa_storage_bucket or os.getenv("LOA_STORAGE_BUCKET", "legal-documents")
@@ -156,7 +160,7 @@ async def upload_loa_document(client_id: str, file: UploadFile = File(...)):
 
 
 @router.get("/{client_id}/analytics", response_model=ClientAnalytics)
-async def get_client_analytics(client_id: str):
+async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
     """Get lightweight analytics for a client from real tables."""
     try:
         db = _db()
