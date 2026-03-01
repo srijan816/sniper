@@ -1,5 +1,5 @@
 """Pydantic models for SniperIP API"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AnyHttpUrl, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -74,11 +74,10 @@ class ClientResponse(ClientBase):
 # ASSET SCHEMAS
 # ============================================
 class AssetCreate(BaseModel):
-    client_id: str
     asset_type: AssetType = AssetType.IMAGE
     original_filename: str
-    storage_url: str
-    thumbnail_url: Optional[str] = None
+    storage_url: AnyHttpUrl
+    thumbnail_url: Optional[AnyHttpUrl] = None
 
 
 class AssetResponse(BaseModel):
@@ -101,13 +100,13 @@ class AssetResponse(BaseModel):
 class ThreatCreate(BaseModel):
     asset_id: str
     client_id: str
-    infringing_url: str
-    infringing_image_url: Optional[str] = None
+    infringing_url: AnyHttpUrl
+    infringing_image_url: Optional[AnyHttpUrl] = None
     host_domain: str
     seller_name: Optional[str] = None
     listing_title: Optional[str] = None
-    listing_price: Optional[float] = None
-    similarity_score: float
+    listing_price: Optional[float] = Field(default=None, ge=0)
+    similarity_score: float = Field(ge=0.0, le=1.0)
     ai_explanation: Optional[str] = None
 
 
@@ -223,12 +222,27 @@ class ClientAnalytics(BaseModel):
 # ============================================
 class VerifyThreatRequest(BaseModel):
     asset_id: str
-    candidate_image_url: str
-    candidate_listing_url: str
+    candidate_image_url: AnyHttpUrl
+    candidate_listing_url: AnyHttpUrl
     host_domain: str
     seller_name: Optional[str] = None
     listing_title: Optional[str] = None
-    listing_price: Optional[float] = None
+    listing_price: Optional[float] = Field(default=None, ge=0)
+
+    @field_validator("candidate_image_url", "candidate_listing_url", mode="before")
+    @classmethod
+    def validate_no_private_ip(cls, v: str) -> str:
+        import ipaddress
+        from urllib.parse import urlparse
+        host = urlparse(str(v)).hostname or ""
+        try:
+            addr = ipaddress.ip_address(host)
+            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                raise ValueError(f"URL must not point to a private or loopback address: {host}")
+        except ValueError as exc:
+            if "private" in str(exc) or "loopback" in str(exc):
+                raise
+        return v
 
 
 class VerifyThreatResponse(BaseModel):

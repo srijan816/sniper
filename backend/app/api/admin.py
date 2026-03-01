@@ -1,12 +1,13 @@
-"""Admin dashboard API (partially Supabase-backed)."""
+"""Admin dashboard API (Supabase-backed, admin-only)."""
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AdminMetrics, CostMetrics, DLQEntry
 from app.workers.takedown import queue_takedown
+from app.api.deps import get_admin_user
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ def _with_table(candidates, fn):
 
 
 @router.get("/metrics", response_model=AdminMetrics)
-async def get_admin_metrics():
+async def get_admin_metrics(_admin: str = Depends(get_admin_user)):
     """Global admin metrics — MRR, clients, threats."""
     try:
         db = _db()
@@ -76,7 +77,7 @@ async def get_admin_metrics():
 
 
 @router.get("/costs", response_model=CostMetrics)
-async def get_cost_metrics():
+async def get_cost_metrics(_admin: str = Depends(get_admin_user)):
     """Cost metrics from telemetry table when available, otherwise safe defaults."""
     try:
         res = _db().table("cost_metrics").select("*").order("created_at", desc=True).limit(1).execute()
@@ -114,7 +115,7 @@ def _map_dlq(row: dict) -> dict:
 
 
 @router.get("/dlq", response_model=List[DLQEntry])
-async def get_dead_letter_queue():
+async def get_dead_letter_queue(_admin: str = Depends(get_admin_user)):
     """Dead letter queue (unresolved failed RPA tasks)."""
     try:
         res = _with_table(
@@ -127,7 +128,7 @@ async def get_dead_letter_queue():
 
 
 @router.post("/dlq/{dlq_id}/retry")
-async def retry_dlq_entry(dlq_id: str):
+async def retry_dlq_entry(dlq_id: str, _admin: str = Depends(get_admin_user)):
     """Re-run a failed takedown from DLQ by resetting request and removing DLQ row."""
     try:
         db = _db()
@@ -154,7 +155,7 @@ async def retry_dlq_entry(dlq_id: str):
 
 
 @router.post("/dlq/{dlq_id}/dismiss")
-async def dismiss_dlq_entry(dlq_id: str):
+async def dismiss_dlq_entry(dlq_id: str, _admin: str = Depends(get_admin_user)):
     """Dismiss a DLQ entry by removing it from queue."""
     try:
         res = _with_table(("dead_letter_queue", "dlq"), lambda table: _db().table(table).delete().eq("id", dlq_id).execute())

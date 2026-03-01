@@ -68,8 +68,8 @@ async def get_client(client_id: str = Depends(get_current_client_id)):
 
 
 @router.post("/", response_model=ClientResponse)
-async def create_client(data: ClientCreate):
-    """Register a new client."""
+async def create_client(data: ClientCreate, client_id: str = Depends(get_current_client_id)):
+    """Register a new client — requires authentication."""
     row = {
         "id": str(uuid.uuid4()),
         "company_name": data.company_name,
@@ -90,6 +90,28 @@ async def create_client(data: ClientCreate):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create client: {exc}") from exc
+
+
+@router.patch("/{client_id}", response_model=ClientResponse)
+async def update_client(
+    data: dict,
+    client_id: str = Depends(get_current_client_id),
+):
+    """Update allowed fields on the authenticated client (whitelist_domains, company_name, etc.)."""
+    allowed = {"company_name", "legal_contact_name", "legal_contact_email", "whitelist_domains"}
+    patch = {k: v for k, v in data.items() if k in allowed}
+    if not patch:
+        raise HTTPException(status_code=400, detail="No updatable fields provided")
+    try:
+        res = _db().table("clients").update(patch).eq("id", client_id).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Client not found")
+        return _map_client(rows[0])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update client: {exc}") from exc
 
 
 @router.post("/{client_id}/loa-upload")

@@ -157,3 +157,65 @@ export async function listClients() {
   const response = await authenticatedFetch("/clients", { cache: "no-store" });
   return parseJson<Client[]>(response);
 }
+
+export async function updateClient(clientId: string, patch: Record<string, unknown>) {
+  const response = await authenticatedFetch(`/clients/${clientId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return parseJson<Client>(response);
+}
+
+export async function createCheckoutSession(plan: string, successUrl: string, cancelUrl: string): Promise<string> {
+  const response = await authenticatedFetch("/checkout/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+  const data = await parseJson<{ url: string }>(response);
+  return data.url;
+}
+
+export async function getAdminMetrics() {
+  const response = await authenticatedFetch("/admin/metrics", { cache: "no-store" });
+  return parseJson<{
+    total_mrr: number;
+    active_clients: number;
+    total_threats_discovered: number;
+    total_threats_removed: number;
+    threats_pending: number;
+    dlq_count: number;
+  }>(response);
+}
+
+export async function getAdminDlq() {
+  const response = await authenticatedFetch("/admin/dlq", { cache: "no-store" });
+  return parseJson<Array<{
+    id: string;
+    takedown_id?: string;
+    error_reason: string;
+    failed_at: string;
+  }>>(response);
+}
+
+export async function retryDlqEntry(dlqId: string) {
+  const response = await authenticatedFetch(`/admin/dlq/${dlqId}/retry`, { method: "POST" });
+  return parseJson<{ status: string }>(response);
+}
+
+export async function dismissDlqEntry(dlqId: string) {
+  const response = await authenticatedFetch(`/admin/dlq/${dlqId}/dismiss`, { method: "POST" });
+  return parseJson<{ status: string }>(response);
+}
+
+export async function getClientAnalytics() {
+  // Path param is ignored by backend; client_id comes from JWT via Depends()
+  const response = await authenticatedFetch("/clients/me/analytics", { cache: "no-store" });
+  return parseJson<{
+    threats_found_this_month: number;
+    threats_removed_this_month: number;
+    estimated_revenue_protected: number;
+    average_order_value: number;
+  }>(response);
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=SniperIP Celery Beat Scheduler
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=sniperip
+Group=sniperip
+WorkingDirectory=/opt/sniperip/backend
+EnvironmentFile=/opt/sniperip/.env
+ExecStart=/opt/sniperip/venv/bin/celery -A app.celery_app.celery_app beat \
+    --loglevel=info \
+    --scheduler celery.beat:PersistentScheduler \
+    --schedule /opt/sniperip/backend/celerybeat-schedule
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniperip-beat
+
+[Install]
+WantedBy=multi-user.target

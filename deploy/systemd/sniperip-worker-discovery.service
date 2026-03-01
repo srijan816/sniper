@@ -1,0 +1,24 @@
+[Unit]
+Description=SniperIP Celery Worker (discovery queue)
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=sniperip
+Group=sniperip
+WorkingDirectory=/opt/sniperip/backend
+EnvironmentFile=/opt/sniperip/.env
+ExecStart=/opt/sniperip/venv/bin/celery -A app.celery_app.celery_app worker \
+    --loglevel=info \
+    --queues=discovery \
+    --concurrency=4 \
+    --hostname=worker-discovery@%h
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniperip-worker-discovery
+
+[Install]
+WantedBy=multi-user.target

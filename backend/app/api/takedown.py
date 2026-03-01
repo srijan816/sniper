@@ -1,14 +1,17 @@
 """Takedown execution API (Supabase-backed)."""
+import logging
 from datetime import datetime
 from typing import List
 import uuid
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.database import get_supabase_client
 from app.models.schemas import TakedownCreate, TakedownResponse
 from app.workers.takedown import queue_takedown
 from app.api.deps import get_current_client_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -30,7 +33,7 @@ def _with_takedown_table(fn):
     for table_name in ("takedown_requests", "takedowns"):
         try:
             return fn(table_name)
-        except Exception as exc:  # Supabase returns runtime API errors.
+        except Exception as exc:
             if _table_missing(exc):
                 last_error = exc
                 continue
@@ -59,9 +62,22 @@ def _map_takedown(row: dict) -> dict:
     }
 
 
+def _verify_threat_ownership(db, threat_id: str, client_id: str) -> dict:
+    """Verify the threat belongs to the authenticated client. Returns threat row."""
+    res = db.table("threats").select("*").eq("id", threat_id).eq("client_id", client_id).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Threat not found")
+    return rows[0]
+
+
 @router.post("/submit", response_model=TakedownResponse)
-async def submit_takedown(data: TakedownCreate):
-    """Queue a takedown request."""
+async def submit_takedown(data: TakedownCreate, client_id: str = Depends(get_current_client_id)):
+    """Queue a takedown request — verifies the threat belongs to the authenticated client."""
+    db = _db()
+    # Verify ownership before queuing
+    _verify_threat_ownership(db, data.threat_id, client_id)
+
     row = {
         "id": str(uuid.uuid4()),
         "threat_id": data.threat_id,
@@ -71,15 +87,15 @@ async def submit_takedown(data: TakedownCreate):
         "submitted_at": datetime.utcnow().isoformat(),
     }
     try:
-        res = _with_takedown_table(lambda table: _db().table(table).insert(row).execute())
+        res = _with_takedown_table(lambda table: db.table(table).insert(row).execute())
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="Takedown creation failed.")
         try:
             queue_takedown(row["id"])
-        except Exception:
-            # Persisted request remains visible for manual retry if queue is unavailable.
-            pass
+        except Exception as exc:
+            logger.error("Failed to dispatch takedown task for takedown %s: %s", row["id"], exc)
+            raise HTTPException(status_code=500, detail="Takedown task could not be queued. Please try again.")
         return _map_takedown(rows[0])
     except HTTPException:
         raise
@@ -88,15 +104,23 @@ async def submit_takedown(data: TakedownCreate):
 
 
 @router.get("/{takedown_id}", response_model=TakedownResponse)
-async def get_takedown(takedown_id: str):
+async def get_takedown(takedown_id: str, client_id: str = Depends(get_current_client_id)):
+    """Get a single takedown, verified to belong to the authenticated client."""
+    db = _db()
     try:
         res = _with_takedown_table(
-            lambda table: _db().table(table).select("*").eq("id", takedown_id).limit(1).execute()
+            lambda table: db.table(table).select("*").eq("id", takedown_id).limit(1).execute()
         )
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Takedown not found")
-        return _map_takedown(rows[0])
+
+        takedown = rows[0]
+        threat_id = takedown.get("threat_id")
+        if threat_id:
+            _verify_threat_ownership(db, threat_id, client_id)
+
+        return _map_takedown(takedown)
     except HTTPException:
         raise
     except Exception as exc:
@@ -105,16 +129,15 @@ async def get_takedown(takedown_id: str):
 
 @router.get("/", response_model=List[TakedownResponse])
 async def list_takedowns(client_id: str = Depends(get_current_client_id)):
-    """List takedown requests, heavily isolated by tenant context."""
+    """List takedown requests, isolated by tenant context."""
     db = _db()
-    
-    # Securely retrieve the list of threat IDs that belong strictly to this client_id
+
     threats_res = db.table("threats").select("id").eq("client_id", client_id).execute()
     threat_ids = [row["id"] for row in (threats_res.data or []) if row.get("id")]
-    
+
     if not threat_ids:
         return []
-        
+
     try:
         def _load_all(table_name: str):
             res = db.table(table_name).select("*").in_("threat_id", threat_ids).order("created_at", desc=True).execute()

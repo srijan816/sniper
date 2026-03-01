@@ -1,0 +1,25 @@
+[Unit]
+Description=SniperIP FastAPI Backend
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=sniperip
+Group=sniperip
+WorkingDirectory=/opt/sniperip/backend
+EnvironmentFile=/opt/sniperip/.env
+ExecStart=/opt/sniperip/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 4 \
+    --log-level info \
+    --access-log
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniperip-api
+
+[Install]
+WantedBy=multi-user.target

@@ -1,14 +1,32 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { AlertOctagon, DollarSign, Shield, Users } from "lucide-react";
 import { ThreatMetric } from "@/components/app/threat-metric";
+import { getAdminMetrics } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
 
-const clients = [
-  { name: "CoolKicks Co.", plan: "AGENCY", threats: 412, mrr: 1500 },
-  { name: "LuxBag Studio", plan: "GROWTH", threats: 287, mrr: 500 },
-  { name: "Demo Brand Co.", plan: "GROWTH", threats: 189, mrr: 500 },
-  { name: "Streetwear Labs", plan: "STARTER", threats: 48, mrr: 99 },
-];
+type Metrics = {
+  total_mrr: number;
+  active_clients: number;
+  total_threats_discovered: number;
+  total_threats_removed: number;
+  threats_pending: number;
+  dlq_count: number;
+};
 
 export default function AdminOverviewPage() {
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAdminMetrics()
+      .then(setMetrics)
+      .catch(() => setError("Failed to load metrics — are you signed in as an admin?"))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="space-y-6">
       <header>
@@ -16,35 +34,38 @@ export default function AdminOverviewPage() {
         <p className="text-app-base text-muted-foreground">Platform-level visibility across revenue, volume, and operational risk.</p>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <ThreatMetric label="Total MRR" value="$7,599" delta="+6.1%" icon={DollarSign} positive />
-        <ThreatMetric label="Active Clients" value="12" delta="+2" icon={Users} positive />
-        <ThreatMetric label="Threats Discovered" value="1,847" delta="+11%" icon={Shield} positive />
-        <ThreatMetric label="DLQ Failures" value="2" delta="-1" icon={AlertOctagon} positive={false} />
-      </section>
+      {error ? <p className="rounded-md border border-red-300 bg-red-50 p-3 text-app-sm text-red-700">{error}</p> : null}
 
-      <section className="overflow-x-auto rounded-md border bg-card shadow-sniper-sm">
-        <table className="min-w-full">
-          <thead className="bg-muted/40">
-            <tr className="text-left text-app-xs uppercase tracking-wider text-muted-foreground">
-              <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Plan</th>
-              <th className="px-4 py-3">Threats</th>
-              <th className="px-4 py-3">MRR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((client) => (
-              <tr key={client.name} className="border-t bg-card">
-                <td className="px-4 py-3 text-app-sm font-medium">{client.name}</td>
-                <td className="px-4 py-3 text-app-xs text-muted-foreground">{client.plan}</td>
-                <td className="px-4 py-3 font-mono text-app-sm">{client.threats}</td>
-                <td className="px-4 py-3 font-mono text-app-sm text-sniper-green">${client.mrr}/mo</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      {loading ? (
+        <p className="text-app-sm text-muted-foreground">Loading…</p>
+      ) : metrics ? (
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ThreatMetric
+            label="Total MRR"
+            value={formatCurrency(metrics.total_mrr)}
+            icon={DollarSign}
+            positive
+          />
+          <ThreatMetric
+            label="Active Clients"
+            value={String(metrics.active_clients)}
+            icon={Users}
+            positive
+          />
+          <ThreatMetric
+            label="Threats Discovered"
+            value={String(metrics.total_threats_discovered)}
+            icon={Shield}
+            positive
+          />
+          <ThreatMetric
+            label="DLQ Failures"
+            value={String(metrics.dlq_count)}
+            icon={AlertOctagon}
+            positive={metrics.dlq_count === 0}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }

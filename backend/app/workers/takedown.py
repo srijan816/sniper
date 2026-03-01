@@ -1,7 +1,10 @@
 """Takedown execution worker (evidence locker + platform fallback + retry/DLQ)."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from io import BytesIO
 import hashlib
@@ -278,8 +281,8 @@ def _extract_sitekey(page) -> str | None:
             value = data_key.get_attribute("data-sitekey")
             if value:
                 return value
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Could not extract data-sitekey from page: %s", exc)
 
     try:
         iframes = page.locator("iframe[src*='recaptcha']")
@@ -292,8 +295,8 @@ def _extract_sitekey(page) -> str | None:
                 values = query.get(key)
                 if values and values[0]:
                     return values[0]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Could not extract sitekey from recaptcha iframe: %s", exc)
 
     return None
 
@@ -572,7 +575,12 @@ def _build_summary(original_url: str, infringing_url: str, loa_url: str, evidenc
         f"Original asset URL: {original_url}. "
         f"Infringing listing URL: {infringing_url}. "
         f"Authorization on file: {loa_url}. "
-        f"Proof of infringement packet: {evidence_url}."
+        f"Proof of infringement packet: {evidence_url}. "
+        "I have a good faith belief that use of the material in the manner complained of is not authorized "
+        "by the copyright owner, its agent, or the law. "
+        "I swear, under penalty of perjury, that the information in this notification is accurate and that "
+        "I am authorized to act on behalf of the owner of an exclusive right that is allegedly infringed. "
+        "/s/ Authorized Agent — SniperIP Enforcement Automation"
     )
 
 
@@ -648,8 +656,8 @@ def _submit_shopify_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
                     checkbox = checkboxes.nth(idx)
                     if not checkbox.is_checked():
                         checkbox.check(force=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Could not check form checkboxes: %s", exc)
 
             site_key = _extract_sitekey(page)
             if site_key:
@@ -886,8 +894,8 @@ def _resolve_abuse_contacts(host_domain: str) -> list[str]:
                 value = email.strip().lower()
                 if EMAIL_RE.fullmatch(value) and value not in emails:
                     emails.append(value)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("WHOIS lookup failed for %s: %s", root_domain, exc)
 
     prioritized = [
         email
@@ -930,20 +938,33 @@ def _submit_generic_email_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
     if not recipients:
         raise RuntimeError(f"No abuse contacts discovered for domain: {host_domain}")
 
+    contact_name = client.get("legal_contact_name") or "Authorized Agent"
     case_number = f"EML-{uuid.uuid4().hex[:10].upper()}"
-    subject = f"DMCA Notice: Unauthorized content on {host_domain}"
+    subject = f"DMCA Takedown Notice (17 U.S.C. § 512): Unauthorized content on {host_domain}"
     html = (
-        "<p>Hello Abuse Team,</p>"
-        "<p>This is a formal DMCA notice regarding unauthorized use of copyrighted content.</p>"
+        "<p>Hello Abuse / DMCA Team,</p>"
+        "<p>This is a formal notice of copyright infringement pursuant to 17 U.S.C. § 512(c)(3) "
+        "(the Digital Millennium Copyright Act). We request that you expeditiously remove or disable "
+        "access to the infringing material identified below.</p>"
+        "<h3>Identification of the infringing material:</h3>"
         "<ul>"
         f"<li>Infringing URL: <a href='{infringing_url}'>{infringing_url}</a></li>"
-        f"<li>Original Asset URL: <a href='{original_url}'>{original_url}</a></li>"
-        f"<li>Similarity Score: {similarity:.4f}</li>"
-        f"<li>Authorization (LOA): <a href='{loa_url}'>{loa_url}</a></li>"
-        f"<li>Proof of Infringement PDF: <a href='{evidence['proof_pdf_url']}'>{evidence['proof_pdf_url']}</a></li>"
+        f"<li>Original copyrighted asset URL: <a href='{original_url}'>{original_url}</a></li>"
+        f"<li>Similarity score: {similarity:.4f}</li>"
+        f"<li>Letter of Authorization: <a href='{loa_url}'>{loa_url}</a></li>"
+        f"<li>Evidence packet (PDF): <a href='{evidence['proof_pdf_url']}'>{evidence['proof_pdf_url']}</a></li>"
         "</ul>"
-        "<p>Please remove or disable access to the infringing material immediately.</p>"
-        "<p>Regards,<br/>SniperIP Enforcement Automation</p>"
+        "<h3>Required Statutory Statements (17 U.S.C. § 512(c)(3)):</h3>"
+        "<p><strong>Good faith belief:</strong> I have a good faith belief that use of the material in "
+        "the manner complained of is not authorized by the copyright owner, its agent, or the law.</p>"
+        "<p><strong>Accuracy and authority:</strong> I swear, under penalty of perjury, that the "
+        "information in this notification is accurate and that I am the copyright owner or am authorized "
+        "to act on behalf of the owner of an exclusive right that is allegedly infringed.</p>"
+        "<p><strong>Electronic Signature:</strong><br/>"
+        f"/s/ {contact_name}<br/>Authorized Agent — SniperIP Enforcement Automation</p>"
+        "<p>Please take immediate action to remove or disable access to the infringing material.</p>"
+        "<p>Regards,<br/>"
+        f"{contact_name}<br/>SniperIP Enforcement Automation</p>"
     )
 
     cc = [client.get("legal_contact_email")] if client.get("legal_contact_email") else None

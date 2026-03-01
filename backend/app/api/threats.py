@@ -69,6 +69,15 @@ def _write_audit_log(threat_id: str, old_status: Optional[str], new_status: str,
     ).execute()
 
 
+def _verify_threat_ownership(db, threat_id: str, client_id: str) -> dict:
+    """Return the threat row if it belongs to client_id, else 404."""
+    res = db.table("threats").select("*").eq("id", threat_id).eq("client_id", client_id).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Threat not found")
+    return rows[0]
+
+
 def _table_missing(exc: Exception) -> bool:
     message = str(exc)
     return "PGRST205" in message or "Could not find the table" in message
@@ -137,11 +146,22 @@ async def list_audit_logs(
     client_id: str = Depends(get_current_client_id),
 ):
     try:
-        query = _db().table("audit_logs").select("*").order("changed_at", desc=True).range(offset, offset + limit - 1)
+        db = _db()
         if threat_id:
-            query = query.eq("threat_id", threat_id)
-        res = query.execute()
+            # Verify ownership before returning logs for a specific threat
+            _verify_threat_ownership(db, threat_id, client_id)
+            query = db.table("audit_logs").select("*").eq("threat_id", threat_id)
+        else:
+            # Scope to threats owned by this client only
+            threats_res = db.table("threats").select("id").eq("client_id", client_id).execute()
+            owned_ids = [r["id"] for r in (threats_res.data or []) if r.get("id")]
+            if not owned_ids:
+                return []
+            query = db.table("audit_logs").select("*").in_("threat_id", owned_ids)
+        res = query.order("changed_at", desc=True).range(offset, offset + limit - 1).execute()
         return [_map_audit(row) for row in (res.data or [])]
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list audit logs: {exc}") from exc
 
@@ -150,11 +170,7 @@ async def list_audit_logs(
 async def get_threat(threat_id: str, client_id: str = Depends(get_current_client_id)):
     try:
         db = _db()
-        res = db.table("threats").select("*").eq("id", threat_id).limit(1).execute()
-        rows = res.data or []
-        if not rows:
-            raise HTTPException(status_code=404, detail="Threat not found")
-        threat = rows[0]
+        threat = _verify_threat_ownership(db, threat_id, client_id)
         asset_map = _fetch_asset_client_map([threat.get("asset_id")] if threat.get("asset_id") else [])
         return _map_threat(threat, asset_map.get(threat.get("asset_id")))
     except HTTPException:
@@ -168,10 +184,7 @@ async def approve_threat(threat_id: str, client_id: str = Depends(get_current_cl
     """Client approves a threat for takedown — AUDIT LOGGED."""
     try:
         db = _db()
-        existing = db.table("threats").select("*").eq("id", threat_id).limit(1).execute().data or []
-        if not existing:
-            raise HTTPException(status_code=404, detail="Threat not found")
-        threat = existing[0]
+        threat = _verify_threat_ownership(db, threat_id, client_id)
         old_status = threat.get("status")
         if old_status not in {"DISCOVERED", "PENDING_APPROVAL"}:
             raise HTTPException(status_code=400, detail=f"Cannot approve threat in status {old_status}")
@@ -205,10 +218,7 @@ async def whitelist_threat(threat_id: str, client_id: str = Depends(get_current_
     """Client whitelists a threat (false positive) — AUDIT LOGGED."""
     try:
         db = _db()
-        existing = db.table("threats").select("*").eq("id", threat_id).limit(1).execute().data or []
-        if not existing:
-            raise HTTPException(status_code=404, detail="Threat not found")
-        threat = existing[0]
+        threat = _verify_threat_ownership(db, threat_id, client_id)
         old_status = threat.get("status")
 
         updated = db.table("threats").update({"status": "WHITELISTED"}).eq("id", threat_id).execute().data or []
@@ -227,10 +237,7 @@ async def reject_threat(threat_id: str, client_id: str = Depends(get_current_cli
     """Client rejects a threat — AUDIT LOGGED."""
     try:
         db = _db()
-        existing = db.table("threats").select("*").eq("id", threat_id).limit(1).execute().data or []
-        if not existing:
-            raise HTTPException(status_code=404, detail="Threat not found")
-        threat = existing[0]
+        threat = _verify_threat_ownership(db, threat_id, client_id)
         old_status = threat.get("status")
 
         updated = db.table("threats").update({"status": "REJECTED"}).eq("id", threat_id).execute().data or []
@@ -246,9 +253,13 @@ async def reject_threat(threat_id: str, client_id: str = Depends(get_current_cli
 
 @router.get("/{threat_id}/audit-trail", response_model=List[AuditLogResponse])
 async def get_audit_trail(threat_id: str, client_id: str = Depends(get_current_client_id)):
-    """Get the complete audit trail for a threat."""
+    """Get the complete audit trail for a threat — ownership verified."""
     try:
-        res = _db().table("audit_logs").select("*").eq("threat_id", threat_id).order("changed_at", desc=False).execute()
+        db = _db()
+        _verify_threat_ownership(db, threat_id, client_id)
+        res = db.table("audit_logs").select("*").eq("threat_id", threat_id).order("changed_at", desc=False).execute()
         return [_map_audit(row) for row in (res.data or [])]
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch audit trail: {exc}") from exc

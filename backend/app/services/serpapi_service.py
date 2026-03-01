@@ -1,6 +1,8 @@
 """SerpApi Google Lens integration for discovery."""
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 from urllib.parse import urlparse
@@ -8,6 +10,8 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,10 +49,29 @@ def search_google_lens(image_url: str) -> List[DiscoveryCandidate]:
         "url": image_url,
         "api_key": settings.serpapi_key,
     }
-    with httpx.Client(timeout=90.0) as client:
-        response = client.get("https://serpapi.com/search.json", params=params)
-        response.raise_for_status()
-        payload = response.json()
+
+    max_retries = 3
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            with httpx.Client(timeout=90.0) as client:
+                response = client.get("https://serpapi.com/search.json", params=params)
+                if response.status_code in (429, 500, 502, 503, 504):
+                    wait = 2 ** attempt
+                    logger.warning("SerpApi attempt %d/%d got %d — retrying in %ds", attempt + 1, max_retries, response.status_code, wait)
+                    time.sleep(wait)
+                    last_exc = httpx.HTTPStatusError(f"HTTP {response.status_code}", request=response.request, response=response)
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+                break
+        except httpx.TimeoutException as exc:
+            wait = 2 ** attempt
+            logger.warning("SerpApi attempt %d/%d timed out — retrying in %ds", attempt + 1, max_retries, wait)
+            time.sleep(wait)
+            last_exc = exc
+    else:
+        raise RuntimeError(f"SerpApi failed after {max_retries} attempts") from last_exc
 
     candidates: list[DiscoveryCandidate] = []
     for key in ("visual_matches", "inline_images"):

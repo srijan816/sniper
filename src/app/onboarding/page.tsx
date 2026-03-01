@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, CreditCard, FileSignature, Mail, U
 import { useState } from "react";
 import { SniperChevron } from "@/components/app/sniper-chevron";
 import { useOnboardingStore } from "@/lib/store";
+import { createCheckoutSession } from "@/lib/api";
 
 const steps = [
   { title: "Account", icon: Mail },
@@ -71,39 +72,74 @@ function StepLegal() {
 
 function StepBilling() {
   const { billingComplete, setBillingComplete } = useOnboardingStore();
-  const [selected, setSelected] = useState("Growth");
+  const [selected, setSelected] = useState("GROWTH");
+  const [redirecting, setRedirecting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const plans = [
-    { name: "Starter", price: "$99/mo" },
-    { name: "Growth", price: "$500/mo" },
-    { name: "Agency", price: "$1,500/mo" },
+    { name: "Starter", tier: "STARTER", price: "$99/mo" },
+    { name: "Growth", tier: "GROWTH", price: "$500/mo" },
+    { name: "Agency", tier: "AGENCY", price: "$1,500/mo", contactSales: true },
   ];
+
+  async function handleCheckout() {
+    const plan = plans.find((p) => p.tier === selected);
+    if (!plan) return;
+    if (plan.contactSales) {
+      window.location.href = "mailto:sales@sniperip.com?subject=Agency Plan Inquiry";
+      return;
+    }
+    setRedirecting(true);
+    setCheckoutError(null);
+    try {
+      const url = await createCheckoutSession(
+        plan.tier,
+        `${window.location.origin}/dashboard?onboarding=complete`,
+        `${window.location.origin}/onboarding`,
+      );
+      setBillingComplete(true);
+      window.location.href = url;
+    } catch {
+      setCheckoutError("Could not start checkout. Please try again.");
+      setRedirecting(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
       <h2 className="font-heading text-app-2xl font-bold">Billing Setup</h2>
-      <p className="text-app-base text-muted-foreground">Select a plan before opening Stripe Checkout.</p>
+      <p className="text-app-base text-muted-foreground">Select a plan to open Stripe Checkout.</p>
       <div className="grid grid-cols-1 gap-2">
         {plans.map((plan) => (
           <button
             key={plan.name}
             type="button"
-            onClick={() => {
-              setSelected(plan.name);
-              setBillingComplete(true);
-            }}
-            className={`rounded-md border px-3 py-3 text-left ${selected === plan.name ? "border-sniper-green border-2" : "bg-white"}`}
+            onClick={() => setSelected(plan.tier)}
+            className={`rounded-md border px-3 py-3 text-left ${selected === plan.tier ? "border-2 border-sniper-green" : "bg-white"}`}
           >
             <p className="font-heading text-app-lg font-semibold">{plan.name}</p>
             <p className="text-app-sm text-muted-foreground">{plan.price}</p>
           </button>
         ))}
       </div>
+      {checkoutError ? (
+        <p className="text-app-sm text-red-600">{checkoutError}</p>
+      ) : null}
       {billingComplete ? (
         <div className="rounded-md border border-sniper-green bg-sniper-green-muted p-3 text-app-sm text-sniper-charcoal">
-          Stripe checkout is ready for {selected}.
+          Redirecting to Stripe…
         </div>
-      ) : null}
+      ) : (
+        <button
+          type="button"
+          disabled={redirecting}
+          onClick={handleCheckout}
+          className="inline-flex items-center gap-2 rounded-md bg-sniper-charcoal px-4 py-2 text-app-sm font-semibold text-white disabled:opacity-60"
+        >
+          <CreditCard className="h-4 w-4" />
+          {redirecting ? "Redirecting…" : "Continue to Payment"}
+        </button>
+      )}
     </div>
   );
 }

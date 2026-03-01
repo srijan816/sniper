@@ -5,12 +5,16 @@ import re
 import uuid
 from typing import List, Optional
 
+import logging
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 
 from app.core.database import get_supabase_client
 from app.models.schemas import AssetResponse
 from app.workers.vectorize import vectorize_asset_task
 from app.api.deps import get_current_client_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -73,7 +77,7 @@ async def list_assets(client_id: str = Depends(get_current_client_id)):
 @router.get("/{asset_id}", response_model=AssetResponse)
 async def get_asset(asset_id: str, client_id: str = Depends(get_current_client_id)):
     try:
-        res = _db().table("assets").select("*").eq("id", asset_id).limit(1).execute()
+        res = _db().table("assets").select("*").eq("id", asset_id).eq("client_id", client_id).limit(1).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Asset not found")
@@ -122,9 +126,9 @@ async def upload_asset(
         # Kick off real embedding generation without blocking upload UX.
         try:
             vectorize_asset_task.delay(asset_id)
-        except Exception:
+        except Exception as exc:
             # Keep upload successful even if worker queue is temporarily unavailable.
-            pass
+            logger.warning("Could not dispatch vectorize task for asset %s: %s", asset_id, exc)
 
         return persisted
     except HTTPException:

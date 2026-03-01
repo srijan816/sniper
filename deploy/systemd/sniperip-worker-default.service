@@ -1,0 +1,24 @@
+[Unit]
+Description=SniperIP Celery Worker (default queue)
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=sniperip
+Group=sniperip
+WorkingDirectory=/opt/sniperip/backend
+EnvironmentFile=/opt/sniperip/.env
+ExecStart=/opt/sniperip/venv/bin/celery -A app.celery_app.celery_app worker \
+    --loglevel=info \
+    --queues=default,notifications \
+    --concurrency=4 \
+    --hostname=worker-default@%h
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sniperip-worker-default
+
+[Install]
+WantedBy=multi-user.target
