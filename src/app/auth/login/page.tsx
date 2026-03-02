@@ -14,7 +14,7 @@ export default function LoginPage() {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("error") === "auth_callback_failed"
-      ? "Authentication failed. Please request a new magic link."
+      ? "Authentication failed. Request a new magic link and open it in the same browser."
       : null;
   });
 
