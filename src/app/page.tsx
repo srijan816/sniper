@@ -8,6 +8,7 @@ import { ChevronIcon } from "@/components/marketing/chevron-icon";
 import { PricingGrid } from "@/components/marketing/pricing-grid";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
+import { FreeScan } from "@/components/FreeScan";
 
 type DemoState = "idle" | "submitted";
 
@@ -267,6 +268,18 @@ export default function MarketingHomePage() {
               ))}
             </div>
           </div>
+        </section>
+
+        <section id="free-scan" className="mx-auto w-full max-w-7xl px-6 py-16">
+          <div className="mb-10 text-center">
+            <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
+              Try a Free Brand Scan
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base text-[#475569]">
+              Upload a product image to instantly detect counterfeits across global marketplaces. No account required.
+            </p>
+          </div>
+          <FreeScan />
         </section>
 
         <section id="pricing" className="mx-auto w-full max-w-7xl px-6 py-16">

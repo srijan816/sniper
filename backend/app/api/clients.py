@@ -9,7 +9,19 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
-from app.models.schemas import ClientAnalytics, ClientCreate, ClientResponse
+import hashlib
+import hmac
+import secrets
+
+from app.models.schemas import (
+    AuthorizedSellerCreate,
+    AuthorizedSellerResponse,
+    ClientAnalytics,
+    ClientCreate,
+    ClientResponse,
+    NotificationSettingsResponse,
+    NotificationSettingsUpdate,
+)
 from app.api.deps import get_current_client_id
 
 router = APIRouter()
@@ -183,36 +195,242 @@ async def upload_loa_document(
 
 @router.get("/{client_id}/analytics", response_model=ClientAnalytics)
 async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
-    """Get lightweight analytics for a client from real tables."""
+    """Get expanded analytics for a client — real data only."""
+    from datetime import datetime, timezone
+    from collections import defaultdict
+
     try:
         db = _db()
-        client_res = db.table("clients").select("id").eq("id", client_id).limit(1).execute()
+        client_res = db.table("clients").select("*").eq("id", client_id).limit(1).execute()
         if not (client_res.data or []):
             raise HTTPException(status_code=404, detail="Client not found")
+        client = client_res.data[0]
+        aov = float(client.get("average_product_price") or 120.0)
 
-        assets_res = db.table("assets").select("id").eq("client_id", client_id).execute()
-        asset_ids = [row["id"] for row in (assets_res.data or []) if row.get("id")]
-        if not asset_ids:
-            return ClientAnalytics(
-                threats_found_this_month=0,
-                threats_removed_this_month=0,
-                estimated_revenue_protected=0.0,
-                average_order_value=120.0,
-            )
-
-        threats_res = db.table("threats").select("status").in_("asset_id", asset_ids).execute()
+        # Threats
+        threats_res = db.table("threats").select("id,status,discovered_at,asset_id").eq("client_id", client_id).execute()
         threats = threats_res.data or []
-        found = len(threats)
-        removed = len([t for t in threats if t.get("status") in {"REMOVED", "TAKEDOWN_CONFIRMED"}])
-        aov = 120.0
+
+        now = datetime.now(timezone.utc)
+        current_month = now.month
+        current_year = now.year
+
+        def _in_month(ts_str: str | None) -> bool:
+            if not ts_str:
+                return False
+            try:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                return dt.month == current_month and dt.year == current_year
+            except Exception:
+                return False
+
+        removed_statuses = {"REMOVED", "TAKEDOWN_CONFIRMED"}
+        found_total = len(threats)
+        found_month = sum(1 for t in threats if _in_month(t.get("discovered_at")))
+        removed_total = sum(1 for t in threats if (t.get("status") or "") in removed_statuses)
+        removed_month = sum(1 for t in threats if (t.get("status") or "") in removed_statuses and _in_month(t.get("discovered_at")))
+
+        # Takedowns for timing
+        try:
+            td_res = db.table("takedown_requests").select("status,completed_at,platform").execute()
+            takedowns = td_res.data or []
+        except Exception:
+            try:
+                td_res = db.table("takedowns").select("status,completed_at,platform").execute()
+                takedowns = td_res.data or []
+            except Exception:
+                takedowns = []
+
+        td_completed = [td for td in takedowns if td.get("status") in {"CONFIRMED", "SUBMITTED", "COMPLETED"}]
+        td_month = [td for td in td_completed if _in_month(td.get("completed_at"))]
+
+        # Average time to takedown (hours)
+        avg_time = None
+        # (simplified - would need created_at too for full calculation)
+
+        # Platforms breakdown
+        platforms: dict = defaultdict(lambda: {"threats": 0, "takedowns": 0})
+        for td in takedowns:
+            p = (td.get("platform") or "other").lower()
+            platforms[p]["takedowns"] += 1
+
+        # Monthly trend (last 6 months)
+        monthly_trend = []
+        for i in range(5, -1, -1):
+            m = (now.month - i - 1) % 12 + 1
+            y = now.year if (now.month - i) > 0 else now.year - 1
+            label = datetime(y, m, 1).strftime("%b")
+            t_count = sum(1 for t in threats if _in_month_year(t.get("discovered_at"), m, y))
+            r_count = sum(1 for t in threats if (t.get("status") or "") in removed_statuses and _in_month_year(t.get("discovered_at"), m, y))
+            monthly_trend.append({"month": label, "found": t_count, "removed": r_count})
+
+        # Bad actors
+        try:
+            ba_res = db.table("bad_actor_signals").select("id").execute()
+            bad_actors = len(ba_res.data or [])
+        except Exception:
+            bad_actors = 0
+
+        rev_protected = removed_total * aov
 
         return ClientAnalytics(
-            threats_found_this_month=found,
-            threats_removed_this_month=removed,
-            estimated_revenue_protected=removed * aov,
+            threats_found_this_month=found_month,
+            threats_removed_this_month=removed_month,
+            estimated_revenue_protected=rev_protected,
             average_order_value=aov,
+            threats_discovered_total=found_total,
+            takedowns_completed_total=len(td_completed),
+            takedowns_completed_this_month=len(td_month),
+            average_time_to_takedown_hours=avg_time,
+            bad_actors_identified=bad_actors,
+            platforms_breakdown=dict(platforms),
+            monthly_trend=monthly_trend,
         )
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch analytics: {exc}") from exc
+
+
+def _in_month_year(ts_str: str | None, month: int, year: int) -> bool:
+    if not ts_str:
+        return False
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return dt.month == month and dt.year == year
+    except Exception:
+        return False
+
+
+# ── Authorized Sellers / Whitelist (Feature 7) ───────────────────────────────
+
+@router.get("/{client_id}/authorized-sellers", response_model=List[AuthorizedSellerResponse])
+async def list_authorized_sellers(client_id: str = Depends(get_current_client_id)):
+    try:
+        res = _db().table("authorized_sellers").select("*").eq("client_id", client_id).order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list authorized sellers: {exc}") from exc
+
+
+@router.post("/{client_id}/authorized-sellers", response_model=AuthorizedSellerResponse)
+async def add_authorized_seller(data: AuthorizedSellerCreate, client_id: str = Depends(get_current_client_id)):
+    domain = data.domain.strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
+    row = {
+        "id": str(uuid.uuid4()),
+        "client_id": client_id,
+        "domain": domain,
+        "seller_name": data.seller_name,
+        "platform": data.platform,
+        "platform_seller_id": data.platform_seller_id,
+        "relationship": data.relationship,
+        "added_by": "manual",
+    }
+    try:
+        res = _db().table("authorized_sellers").upsert(row, on_conflict="client_id,domain").execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=500, detail="Failed to add authorized seller")
+        return rows[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to add authorized seller: {exc}") from exc
+
+
+@router.delete("/{client_id}/authorized-sellers/{seller_id}")
+async def remove_authorized_seller(seller_id: str, client_id: str = Depends(get_current_client_id)):
+    try:
+        res = _db().table("authorized_sellers").delete().eq("id", seller_id).eq("client_id", client_id).execute()
+        if not (res.data or []):
+            raise HTTPException(status_code=404, detail="Authorized seller not found")
+        return {"status": "deleted", "seller_id": seller_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to remove authorized seller: {exc}") from exc
+
+
+# ── Notification Settings (Feature 8) ────────────────────────────────────────
+
+@router.get("/{client_id}/notifications", response_model=NotificationSettingsResponse)
+async def get_notification_settings(client_id: str = Depends(get_current_client_id)):
+    try:
+        res = _db().table("clients").select("slack_webhook_url,webhook_url,webhook_secret,notification_prefs").eq("id", client_id).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = rows[0]
+        # Mask the webhook secret — return only a hint
+        secret = row.get("webhook_secret")
+        return NotificationSettingsResponse(
+            slack_webhook_url=row.get("slack_webhook_url"),
+            webhook_url=row.get("webhook_url"),
+            webhook_secret=f"••••{secret[-4:]}" if secret and len(secret) > 4 else None,
+            notification_prefs=row.get("notification_prefs") or {},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get notification settings: {exc}") from exc
+
+
+@router.put("/{client_id}/notifications", response_model=NotificationSettingsResponse)
+async def update_notification_settings(data: NotificationSettingsUpdate, client_id: str = Depends(get_current_client_id)):
+    patch: dict = {}
+    if data.slack_webhook_url is not None:
+        patch["slack_webhook_url"] = data.slack_webhook_url or None
+    if data.webhook_url is not None:
+        patch["webhook_url"] = data.webhook_url or None
+        # Rotate webhook secret when URL changes
+        if data.webhook_url:
+            patch["webhook_secret"] = secrets.token_hex(32)
+    if data.notification_prefs is not None:
+        patch["notification_prefs"] = data.notification_prefs
+    if not patch:
+        raise HTTPException(status_code=400, detail="No settings to update")
+    try:
+        res = _db().table("clients").update(patch).eq("id", client_id).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = rows[0]
+        secret = row.get("webhook_secret")
+        return NotificationSettingsResponse(
+            slack_webhook_url=row.get("slack_webhook_url"),
+            webhook_url=row.get("webhook_url"),
+            webhook_secret=secret,  # return full secret on creation
+            notification_prefs=row.get("notification_prefs") or {},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update notification settings: {exc}") from exc
+
+
+@router.post("/{client_id}/notifications/test")
+async def test_notification(client_id: str = Depends(get_current_client_id)):
+    """Send a test notification through all configured channels."""
+    try:
+        db = _db()
+        res = db.table("clients").select("*").eq("id", client_id).limit(1).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Client not found")
+        client = rows[0]
+        from app.services.notification_service import dispatch_client_notification
+        dispatch_client_notification(
+            client=client,
+            event_type="test",
+            title="Test Notification",
+            email_subject="SniperIP: Test notification",
+            email_html="<p>This is a test notification from SniperIP. Your notification channels are configured correctly.</p>",
+            slack_message=":white_check_mark: *Test notification* — SniperIP is connected successfully!",
+            webhook_payload={"message": "Test notification from SniperIP"},
+        )
+        return {"status": "sent"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send test notification: {exc}") from exc

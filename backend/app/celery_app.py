@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.workers.vectorize",
         "app.workers.takedown",
         "app.workers.notifications",
+        "app.workers.monitoring",
     ],
 )
 
@@ -45,6 +46,10 @@ celery_app.conf.update(
         "run-discovery-tick": {
             "task": "app.workers.discovery.run_discovery_tick",
             "schedule": 900.0,  # 15 minutes — processes one client per tick
+        },
+        "check-takedown-persistence": {
+            "task": "app.workers.monitoring.check_takedown_persistence",
+            "schedule": 86400.0,  # daily — poll completed takedowns for reinstatement
         },
     },
 )

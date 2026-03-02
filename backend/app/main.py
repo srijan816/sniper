@@ -24,6 +24,7 @@ from app.api.admin import router as admin_router
 from app.api.webhooks import router as webhooks_router
 from app.api.clients import router as clients_router
 from app.api.checkout import router as checkout_router
+from app.api.scan import router as scan_router
 
 
 
@@ -46,3 +47,4 @@ app.include_router(takedown_router, prefix="/api/takedown", tags=["Takedown"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 app.include_router(webhooks_router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(checkout_router, prefix="/api/checkout", tags=["Checkout"])
+app.include_router(scan_router, prefix="/api/scan", tags=["Scan"])

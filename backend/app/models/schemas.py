@@ -215,6 +215,75 @@ class ClientAnalytics(BaseModel):
     threats_removed_this_month: int
     estimated_revenue_protected: float
     average_order_value: float
+    # Extended analytics (PID Feature 6)
+    threats_discovered_total: int = 0
+    takedowns_completed_total: int = 0
+    takedowns_completed_this_month: int = 0
+    average_time_to_takedown_hours: Optional[float] = None
+    bad_actors_identified: int = 0
+    platforms_breakdown: dict = {}
+    monthly_trend: List[dict] = []
+
+
+# ============================================
+# AUTHORIZED SELLERS SCHEMAS (Feature 7)
+# ============================================
+class AuthorizedSellerCreate(BaseModel):
+    domain: str
+    seller_name: Optional[str] = None
+    platform: Optional[str] = None
+    platform_seller_id: Optional[str] = None
+    relationship: str = "authorized_distributor"
+
+
+class AuthorizedSellerResponse(BaseModel):
+    id: str
+    client_id: str
+    domain: str
+    seller_name: Optional[str] = None
+    platform: Optional[str] = None
+    platform_seller_id: Optional[str] = None
+    relationship: str
+    added_by: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================
+# NOTIFICATION SETTINGS SCHEMAS (Feature 8)
+# ============================================
+class NotificationSettingsUpdate(BaseModel):
+    slack_webhook_url: Optional[str] = None
+    webhook_url: Optional[str] = None
+    notification_prefs: Optional[dict] = None
+
+
+class NotificationSettingsResponse(BaseModel):
+    slack_webhook_url: Optional[str] = None
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    notification_prefs: dict = {}
+
+
+# ============================================
+# FREE SCAN SCHEMAS (Feature 4)
+# ============================================
+class FreeScanResult(BaseModel):
+    platform: str
+    country: str
+    similarity_score: float
+    thumbnail_url: Optional[str] = None
+    domain_hint: str
+
+
+class FreeScanResponse(BaseModel):
+    total_matches_found: int
+    high_confidence_matches: int
+    results: List[FreeScanResult]
+    email_captured: bool
+    cta_message: str
 
 
 # ============================================

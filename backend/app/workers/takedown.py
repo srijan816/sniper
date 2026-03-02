@@ -1020,17 +1020,23 @@ def execute_takedown_task(takedown_id: str):
     client = context["client"]
 
     requested = (takedown.get("platform") or "").strip().lower()
-    if requested in {"shopify", "meta", "amazon", "generic_email"}:
+    if requested in {"shopify", "meta", "amazon", "tiktok", "ebay", "rogue_domain", "generic_email"}:
         platform = requested
     else:
-        if _is_meta_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+        url = threat.get("infringing_url") or ""
+        domain = threat.get("host_domain") or ""
+        if _is_meta_listing(url, domain):
             platform = "meta"
-        elif _is_amazon_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+        elif _is_amazon_listing(url, domain):
             platform = "amazon"
-        elif _is_shopify_listing(threat.get("infringing_url") or "", threat.get("host_domain")):
+        elif _is_shopify_listing(url, domain):
             platform = "shopify"
+        elif "tiktok.com" in domain or "tiktok.com" in url:
+            platform = "tiktok"
+        elif "ebay.com" in domain or "ebay.com" in url:
+            platform = "ebay"
         else:
-            platform = "generic_email"
+            platform = "rogue_domain"
 
     try:
         evidence = _capture_evidence(context)
@@ -1041,6 +1047,16 @@ def execute_takedown_task(takedown_id: str):
             result = _submit_meta_ip_report(context, evidence)
         elif platform == "amazon":
             result = _submit_amazon_brand_registry(context, evidence)
+        elif platform == "tiktok":
+            from app.workers.tiktok_takedown import submit_tiktok_dmca
+            result = submit_tiktok_dmca(context, evidence)
+        elif platform == "ebay":
+            from app.workers.ebay_takedown import submit_ebay_dmca
+            result = submit_ebay_dmca(context, evidence)
+        elif platform == "rogue_domain":
+            from app.services.abuse_reporter import resolve_registrar, submit_registrar_abuse
+            registrar_info = resolve_registrar(threat.get("host_domain") or "")
+            result = submit_registrar_abuse(context, evidence, registrar_info)
         else:
             result = _submit_generic_email_dmca(context, evidence)
 

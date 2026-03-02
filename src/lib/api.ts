@@ -217,5 +217,92 @@ export async function getClientAnalytics() {
     threats_removed_this_month: number;
     estimated_revenue_protected: number;
     average_order_value: number;
+    threats_discovered_total: number;
+    takedowns_completed_total: number;
+    takedowns_completed_this_month: number;
+    average_time_to_takedown_hours: number | null;
+    bad_actors_identified: number;
+    platforms_breakdown: Record<string, number>;
+    monthly_trend: Array<{ month: string; threats: number; takedowns: number }>;
+  }>(response);
+}
+
+export type AuthorizedSeller = {
+  id: string;
+  client_id: string;
+  domain: string;
+  seller_name?: string | null;
+  platform?: string | null;
+  platform_seller_id?: string | null;
+  relationship: string;
+  added_by: string;
+  created_at: string;
+};
+
+export async function listAuthorizedSellers(clientId: string) {
+  const response = await authenticatedFetch(`/clients/${clientId}/authorized-sellers`, { cache: "no-store" });
+  return parseJson<AuthorizedSeller[]>(response);
+}
+
+export async function addAuthorizedSeller(
+  clientId: string,
+  payload: { domain: string; seller_name?: string; platform?: string; relationship?: string }
+) {
+  const response = await authenticatedFetch(`/clients/${clientId}/authorized-sellers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJson<AuthorizedSeller>(response);
+}
+
+export async function removeAuthorizedSeller(clientId: string, sellerId: string) {
+  const response = await authenticatedFetch(`/clients/${clientId}/authorized-sellers/${sellerId}`, {
+    method: "DELETE",
+  });
+  return parseJson<{ status: string }>(response);
+}
+
+export async function getNotificationSettings(clientId: string) {
+  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, { cache: "no-store" });
+  return parseJson<{
+    slack_webhook_url: string | null;
+    webhook_url: string | null;
+    webhook_secret: string | null;
+    notification_prefs: Record<string, unknown>;
+  }>(response);
+}
+
+export async function updateNotificationSettings(
+  clientId: string,
+  payload: { slack_webhook_url?: string | null; webhook_url?: string | null; notification_prefs?: Record<string, unknown> }
+) {
+  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJson<{ status: string }>(response);
+}
+
+export async function testNotification(clientId: string, channel: "email" | "slack" | "webhook") {
+  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel }),
+  });
+  return parseJson<{ status: string; message: string }>(response);
+}
+
+export async function freeScan(formData: FormData) {
+  const rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  const base = rawBackendUrl.replace(/\/$/, "");
+  const response = await fetch(`${base}/api/scan/free`, { method: "POST", body: formData });
+  return parseJson<{
+    total_matches_found: number;
+    high_confidence_matches: number;
+    results: Array<{ platform: string; country: string; similarity_score: number; thumbnail_url: string | null; domain_hint: string }>;
+    email_captured: boolean;
+    cta_message: string;
   }>(response);
 }
