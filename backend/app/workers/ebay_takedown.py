@@ -58,15 +58,41 @@ def _extract_ebay_item_number(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _build_contact_block(client: dict) -> str:
+    """Return plain-text contact block required by 17 U.S.C. § 512(c)(3)(A)(iv)."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    name = client.get("legal_contact_name") or "Authorized Agent"
+    email = client.get("legal_contact_email") or ""
+    phone = client.get("contact_phone") or ""
+    address = client.get("contact_address") or ""
+    if not phone:
+        _log.warning("eBay DMCA notice missing contact_phone for client %s", client.get("id"))
+    if not address:
+        _log.warning("eBay DMCA notice missing contact_address for client %s", client.get("id"))
+    lines = [
+        "Contact Information (17 U.S.C. § 512(c)(3)(A)(iv)):",
+        f"Name: {name}",
+        f"Email: {email}",
+    ]
+    if phone:
+        lines.append(f"Phone: {phone}")
+    if address:
+        lines.append(f"Address: {address}")
+    return "\n".join(lines)
+
+
 def _build_noci_description(
     asset: dict,
     infringing_url: str,
     item_number: str | None,
     original_url: str,
     evidence_url: str,
+    client: dict | None = None,
 ) -> str:
     ai_description = asset.get("ai_description") or asset.get("description") or "Copyrighted original work."
     item_ref = f"eBay item #{item_number}" if item_number else infringing_url
+    contact_block = _build_contact_block(client) if client else ""
     return (
         f"Notice of Claimed Infringement (NOCI)\n\n"
         f"Original work description: {ai_description}\n\n"
@@ -74,7 +100,8 @@ def _build_noci_description(
         f"Infringing URL: {infringing_url}\n"
         f"Original asset URL: {original_url}\n"
         f"Evidence packet (PDF): {evidence_url}\n\n"
-        f"{_GOOD_FAITH_STATEMENT}\n\n"
+        + (contact_block + "\n\n" if contact_block else "")
+        + f"{_GOOD_FAITH_STATEMENT}\n\n"
         f"{_PERJURY_STATEMENT}\n\n"
         f"{_SIGNATURE}"
     )
@@ -192,6 +219,7 @@ def _submit_via_vero_api(
         item_number,
         original_url,
         evidence_url,
+        client=client,
     )
 
     xml_body = _build_vero_xml_noci(
@@ -290,7 +318,7 @@ def _submit_via_browser(
     contact_email = client.get("legal_contact_email") or ""
     company_name = client.get("company_name") or "SniperIP Client"
     noci_description = _build_noci_description(
-        asset, infringing_url, item_number, original_url, evidence_url
+        asset, infringing_url, item_number, original_url, evidence_url, client=client
     )
 
     form_url = _EBAY_VERO_FORM_URL

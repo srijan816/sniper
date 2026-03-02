@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import time
+from urllib.parse import urlparse
 
 import httpx
 import resend
@@ -14,6 +17,28 @@ from slack_sdk.webhook import WebhookClient
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _assert_public_url(url: str) -> None:
+    """Raise RuntimeError if *url* resolves to a private/loopback address (SSRF guard)."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise RuntimeError(f"Webhook URL has no hostname: {url}")
+    try:
+        results = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise RuntimeError(f"Webhook URL hostname could not be resolved: {hostname}") from exc
+    for _, _, _, _, sockaddr in results:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            raise RuntimeError(
+                f"Webhook URL '{url}' resolves to a non-public IP ({ip_str}). Blocked to prevent SSRF."
+            )
 
 
 def send_upgrade_email(client_email: str, client_name: str) -> None:
@@ -142,6 +167,7 @@ def _send_client_slack(
     })
 
     try:
+        _assert_public_url(slack_webhook_url)
         with httpx.Client(timeout=10.0) as client:
             r = client.post(slack_webhook_url, json={"blocks": blocks})
             if r.status_code >= 400:
@@ -163,6 +189,7 @@ def _send_client_webhook(
         sig = hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         headers["X-SniperIP-Signature"] = f"sha256={sig}"
     try:
+        _assert_public_url(webhook_url)
         with httpx.Client(timeout=10.0) as client:
             r = client.post(webhook_url, content=body, headers=headers)
             if r.status_code >= 400:

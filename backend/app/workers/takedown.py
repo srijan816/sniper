@@ -569,7 +569,51 @@ def _is_amazon_listing(infringing_url: str, host_domain: str | None) -> bool:
     return "amazon." in lowered
 
 
-def _build_summary(original_url: str, infringing_url: str, loa_url: str, evidence_url: str) -> str:
+def _build_contact_block(client: dict) -> str:
+    """Return a plain-text contact block required by 17 U.S.C. § 512(c)(3)(A)(iv)."""
+    name = client.get("legal_contact_name") or "Authorized Agent"
+    email = client.get("legal_contact_email") or ""
+    phone = client.get("contact_phone") or ""
+    address = client.get("contact_address") or ""
+    if not phone:
+        logger.warning("DMCA notice missing contact_phone for client %s", client.get("id"))
+    if not address:
+        logger.warning("DMCA notice missing contact_address for client %s", client.get("id"))
+    lines = [
+        "Contact Information (17 U.S.C. § 512(c)(3)(A)(iv)):",
+        f"Name: {name}",
+        f"Email: {email}",
+    ]
+    if phone:
+        lines.append(f"Phone: {phone}")
+    if address:
+        lines.append(f"Address: {address}")
+    return "\n".join(lines)
+
+
+def _build_contact_html(client: dict) -> str:
+    """Return an HTML contact block for email DMCA notices."""
+    name = client.get("legal_contact_name") or "Authorized Agent"
+    email = client.get("legal_contact_email") or ""
+    phone = client.get("contact_phone") or ""
+    address = client.get("contact_address") or ""
+    if not phone:
+        logger.warning("DMCA notice missing contact_phone for client %s", client.get("id"))
+    if not address:
+        logger.warning("DMCA notice missing contact_address for client %s", client.get("id"))
+    rows = (
+        f"<li><strong>Name:</strong> {name}</li>"
+        f"<li><strong>Email:</strong> {email}</li>"
+    )
+    if phone:
+        rows += f"<li><strong>Phone:</strong> {phone}</li>"
+    if address:
+        rows += f"<li><strong>Address:</strong> {address}</li>"
+    return f"<h3>Contact Information (17 U.S.C. § 512(c)(3)(A)(iv)):</h3><ul>{rows}</ul>"
+
+
+def _build_summary(original_url: str, infringing_url: str, loa_url: str, evidence_url: str, client: dict | None = None) -> str:
+    contact_block = _build_contact_block(client) if client else ""
     return (
         "I represent the rights holder and request removal of unauthorized copyrighted content. "
         f"Original asset URL: {original_url}. "
@@ -581,6 +625,7 @@ def _build_summary(original_url: str, infringing_url: str, loa_url: str, evidenc
         "I swear, under penalty of perjury, that the information in this notification is accurate and that "
         "I am authorized to act on behalf of the owner of an exclusive right that is allegedly infringed. "
         "/s/ Authorized Agent — SniperIP Enforcement Automation"
+        + ("\n\n" + contact_block if contact_block else "")
     )
 
 
@@ -600,7 +645,7 @@ def _submit_shopify_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
 
     infringing_url = threat.get("infringing_url") or ""
     original_url = asset.get("thumbnail_url") or asset.get("storage_url") or ""
-    summary = _build_summary(original_url, infringing_url, loa_url, evidence["proof_pdf_url"])
+    summary = _build_summary(original_url, infringing_url, loa_url, evidence["proof_pdf_url"], client=client)
 
     with sync_playwright() as playwright:
         browser, context, page = _open_hardened_page(playwright)
@@ -954,7 +999,8 @@ def _submit_generic_email_dmca(ctx: dict, evidence: dict) -> SubmissionResult:
         f"<li>Letter of Authorization: <a href='{loa_url}'>{loa_url}</a></li>"
         f"<li>Evidence packet (PDF): <a href='{evidence['proof_pdf_url']}'>{evidence['proof_pdf_url']}</a></li>"
         "</ul>"
-        "<h3>Required Statutory Statements (17 U.S.C. § 512(c)(3)):</h3>"
+        + _build_contact_html(client)
+        + "<h3>Required Statutory Statements (17 U.S.C. § 512(c)(3)):</h3>"
         "<p><strong>Good faith belief:</strong> I have a good faith belief that use of the material in "
         "the manner complained of is not authorized by the copyright owner, its agent, or the law.</p>"
         "<p><strong>Accuracy and authority:</strong> I swear, under penalty of perjury, that the "

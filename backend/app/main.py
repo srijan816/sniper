@@ -1,9 +1,27 @@
 """SniperIP Backend - FastAPI Main Application"""
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+
+def get_real_ip(request: Request) -> str:
+    """Extract the real client IP, accounting for Cloudflare, Nginx, and AWS ALB proxies."""
+    # Cloudflare sets CF-Connecting-IP to the original client IP
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+    # X-Forwarded-For may be a comma-separated chain; the first entry is the client
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    # Nginx sets X-Real-IP
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    # Fallback to direct connection
+    return request.client.host if request.client else "unknown"
+
 
 app = FastAPI(
     title="SniperIP API",
@@ -11,7 +29,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["1000/minute"])
+limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

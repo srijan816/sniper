@@ -8,6 +8,8 @@ type ClientData = {
   company_name: string;
   legal_contact_name: string;
   legal_contact_email: string;
+  contact_address: string;
+  contact_phone: string;
 };
 
 type Tab = "profile" | "notifications";
@@ -15,7 +17,7 @@ type Tab = "profile" | "notifications";
 export default function BrandProfilePage() {
   const [tab, setTab] = useState<Tab>("profile");
   const [client, setClient] = useState<ClientData | null>(null);
-  const [form, setForm] = useState({ company_name: "", legal_contact_name: "", legal_contact_email: "" });
+  const [form, setForm] = useState({ company_name: "", legal_contact_name: "", legal_contact_email: "", contact_address: "", contact_phone: "" });
   const [notifForm, setNotifForm] = useState({ slack_webhook_url: "", webhook_url: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,17 +32,22 @@ export default function BrandProfilePage() {
       .then(async (clients) => {
         const c = clients[0];
         if (!c) return;
+        const raw = c as Record<string, unknown>;
         const data: ClientData = {
           id: c.id,
           company_name: c.company_name,
-          legal_contact_name: (c as Record<string, unknown>).legal_contact_name as string ?? "",
-          legal_contact_email: (c as Record<string, unknown>).legal_contact_email as string ?? "",
+          legal_contact_name: raw.legal_contact_name as string ?? "",
+          legal_contact_email: raw.legal_contact_email as string ?? "",
+          contact_address: raw.contact_address as string ?? "",
+          contact_phone: raw.contact_phone as string ?? "",
         };
         setClient(data);
         setForm({
           company_name: data.company_name,
           legal_contact_name: data.legal_contact_name,
           legal_contact_email: data.legal_contact_email,
+          contact_address: data.contact_address,
+          contact_phone: data.contact_phone,
         });
         try {
           const ns = await getNotificationSettings(c.id);
@@ -191,6 +198,28 @@ export default function BrandProfilePage() {
               value={form.legal_contact_email}
               onChange={(e) => setForm((f) => ({ ...f, legal_contact_email: e.target.value }))}
               className="h-9 w-full rounded-md border bg-white px-3 text-app-sm outline-none focus:border-sniper-green focus:ring-2 focus:ring-sniper-green/30"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-app-sm font-medium">Phone Number</span>
+            <span className="text-app-xs text-muted-foreground ml-1">(required for DMCA notices — 17 U.S.C. § 512(c)(3))</span>
+            <input
+              type="tel"
+              value={form.contact_phone}
+              onChange={(e) => setForm((f) => ({ ...f, contact_phone: e.target.value }))}
+              placeholder="+1 (555) 000-0000"
+              className="h-9 w-full rounded-md border bg-white px-3 text-app-sm outline-none focus:border-sniper-green focus:ring-2 focus:ring-sniper-green/30"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-app-sm font-medium">Business Address</span>
+            <span className="text-app-xs text-muted-foreground ml-1">(required for DMCA notices — 17 U.S.C. § 512(c)(3))</span>
+            <textarea
+              rows={2}
+              value={form.contact_address}
+              onChange={(e) => setForm((f) => ({ ...f, contact_address: e.target.value }))}
+              placeholder="123 Main St, Suite 100, New York, NY 10001"
+              className="w-full rounded-md border bg-white px-3 py-2 text-app-sm outline-none focus:border-sniper-green focus:ring-2 focus:ring-sniper-green/30"
             />
           </label>
 

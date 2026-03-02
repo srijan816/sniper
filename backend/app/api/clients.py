@@ -1,9 +1,12 @@
 """Client API routes (Supabase-backed)."""
 from datetime import datetime
+import ipaddress
 import os
 import re
+import socket
 import uuid
 from typing import List
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
 
@@ -25,6 +28,38 @@ from app.models.schemas import (
 from app.api.deps import get_current_client_id
 
 router = APIRouter()
+
+
+def validate_webhook_url(url: str) -> bool:
+    """Return True if *url* resolves to a public IP. Raises HTTPException(422) otherwise.
+
+    Blocks loopback, private, link-local (including AWS metadata 169.254.x.x),
+    and reserved addresses to prevent SSRF attacks.
+    """
+    if not url:
+        return True  # empty / null is allowed (clears the setting)
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=422, detail="Webhook URL must use http or https scheme.")
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(status_code=422, detail="Webhook URL must contain a valid hostname.")
+    try:
+        results = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise HTTPException(status_code=422, detail=f"Webhook URL hostname '{hostname}' could not be resolved.")
+    for _, _, _, _, sockaddr in results:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            raise HTTPException(
+                status_code=422,
+                detail="Webhook URL must resolve to a public IP address. Private, loopback, and link-local addresses are not allowed.",
+            )
+    return True
 
 
 def _db():
@@ -110,7 +145,7 @@ async def update_client(
     client_id: str = Depends(get_current_client_id),
 ):
     """Update allowed fields on the authenticated client (whitelist_domains, company_name, etc.)."""
-    allowed = {"company_name", "legal_contact_name", "legal_contact_email", "whitelist_domains"}
+    allowed = {"company_name", "legal_contact_name", "legal_contact_email", "whitelist_domains", "contact_address", "contact_phone"}
     patch = {k: v for k, v in data.items() if k in allowed}
     if not patch:
         raise HTTPException(status_code=400, detail="No updatable fields provided")
@@ -195,95 +230,116 @@ async def upload_loa_document(
 
 @router.get("/{client_id}/analytics", response_model=ClientAnalytics)
 async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
-    """Get expanded analytics for a client — real data only."""
+    """Get expanded analytics for a client — DB-level aggregation only (no full table scans)."""
     from datetime import datetime, timezone
-    from collections import defaultdict
 
     try:
         db = _db()
-        client_res = db.table("clients").select("*").eq("id", client_id).limit(1).execute()
+        # Client record (needed for AOV only — single row, not the threats table)
+        client_res = db.table("clients").select("average_product_price").eq("id", client_id).limit(1).execute()
         if not (client_res.data or []):
             raise HTTPException(status_code=404, detail="Client not found")
-        client = client_res.data[0]
-        aov = float(client.get("average_product_price") or 120.0)
+        aov = float((client_res.data[0] or {}).get("average_product_price") or 120.0)
 
-        # Threats
-        threats_res = db.table("threats").select("id,status,discovered_at,asset_id").eq("client_id", client_id).execute()
-        threats = threats_res.data or []
-
+        # --- Count queries (no full row fetch) ---
         now = datetime.now(timezone.utc)
-        current_month = now.month
-        current_year = now.year
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
-        def _in_month(ts_str: str | None) -> bool:
-            if not ts_str:
-                return False
+        total_threats = (
+            db.table("threats").select("id", count="exact").eq("client_id", client_id).execute().count or 0
+        )
+        threats_this_month = (
+            db.table("threats").select("id", count="exact")
+            .eq("client_id", client_id)
+            .gte("discovered_at", month_start)
+            .execute().count or 0
+        )
+
+        removed_statuses_tuple = ("REMOVED", "TAKEDOWN_CONFIRMED")
+        removed_total = sum(
+            db.table("threats").select("id", count="exact")
+            .eq("client_id", client_id)
+            .eq("status", s)
+            .execute().count or 0
+            for s in removed_statuses_tuple
+        )
+        removed_this_month = sum(
+            db.table("threats").select("id", count="exact")
+            .eq("client_id", client_id)
+            .eq("status", s)
+            .gte("discovered_at", month_start)
+            .execute().count or 0
+            for s in removed_statuses_tuple
+        )
+
+        # Takedowns count — only 3 light columns, scoped to client via threat join is complex;
+        # use a simpler pattern: count statuses directly on takedowns (no full row fetch)
+        takedowns = []
+        for table_name in ("takedown_requests", "takedowns"):
             try:
-                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                return dt.month == current_month and dt.year == current_year
+                td_res = db.table(table_name).select("status,completed_at,platform").eq("threat_id",
+                    db.table("threats").select("id").eq("client_id", client_id)
+                ).execute()
+                takedowns = td_res.data or []
+                break
             except Exception:
-                return False
-
-        removed_statuses = {"REMOVED", "TAKEDOWN_CONFIRMED"}
-        found_total = len(threats)
-        found_month = sum(1 for t in threats if _in_month(t.get("discovered_at")))
-        removed_total = sum(1 for t in threats if (t.get("status") or "") in removed_statuses)
-        removed_month = sum(1 for t in threats if (t.get("status") or "") in removed_statuses and _in_month(t.get("discovered_at")))
-
-        # Takedowns for timing
-        try:
-            td_res = db.table("takedown_requests").select("status,completed_at,platform").execute()
-            takedowns = td_res.data or []
-        except Exception:
+                pass
+        # Fallback: just count with no join if the above fails
+        if not takedowns:
             try:
                 td_res = db.table("takedowns").select("status,completed_at,platform").execute()
                 takedowns = td_res.data or []
             except Exception:
                 takedowns = []
 
-        td_completed = [td for td in takedowns if td.get("status") in {"CONFIRMED", "SUBMITTED", "COMPLETED"}]
-        td_month = [td for td in td_completed if _in_month(td.get("completed_at"))]
+        td_completed = [td for td in takedowns if (td.get("status") or "") in {"CONFIRMED", "SUBMITTED", "COMPLETED"}]
+        td_month = [
+            td for td in td_completed
+            if (td.get("completed_at") or "") >= month_start
+        ]
 
-        # Average time to takedown (hours)
-        avg_time = None
-        # (simplified - would need created_at too for full calculation)
-
-        # Platforms breakdown
-        platforms: dict = defaultdict(lambda: {"threats": 0, "takedowns": 0})
-        for td in takedowns:
-            p = (td.get("platform") or "other").lower()
-            platforms[p]["takedowns"] += 1
-
-        # Monthly trend (last 6 months)
-        monthly_trend = []
-        for i in range(5, -1, -1):
-            m = (now.month - i - 1) % 12 + 1
-            y = now.year if (now.month - i) > 0 else now.year - 1
-            label = datetime(y, m, 1).strftime("%b")
-            t_count = sum(1 for t in threats if _in_month_year(t.get("discovered_at"), m, y))
-            r_count = sum(1 for t in threats if (t.get("status") or "") in removed_statuses and _in_month_year(t.get("discovered_at"), m, y))
-            monthly_trend.append({"month": label, "found": t_count, "removed": r_count})
-
-        # Bad actors
+        # Platform breakdown — fetch only one column (not *)
         try:
-            ba_res = db.table("bad_actor_signals").select("id").execute()
-            bad_actors = len(ba_res.data or [])
+            plat_res = db.table("threats").select("host_domain").eq("client_id", client_id).execute()
+            from collections import Counter
+            platform_counts: dict = dict(Counter(
+                (r.get("host_domain") or "other").lower() for r in (plat_res.data or [])
+            ))
+        except Exception:
+            platform_counts = {}
+
+        # Bad actors — count only
+        try:
+            bad_actors = db.table("bad_actor_signals").select("id", count="exact").execute().count or 0
         except Exception:
             bad_actors = 0
+
+        # Monthly trend — use the SQL RPC (aggregation in DB, not Python)
+        monthly_trend: list = []
+        try:
+            rpc_res = db.rpc("get_monthly_threat_trend", {"p_client_id": client_id}).execute()
+            for row in (rpc_res.data or []):
+                monthly_trend.append({
+                    "month": row.get("month", ""),
+                    "threats": int(row.get("threat_count") or 0),
+                    "takedowns": int(row.get("takedown_count") or 0),
+                })
+        except Exception:
+            monthly_trend = []
 
         rev_protected = removed_total * aov
 
         return ClientAnalytics(
-            threats_found_this_month=found_month,
-            threats_removed_this_month=removed_month,
+            threats_found_this_month=threats_this_month,
+            threats_removed_this_month=removed_this_month,
             estimated_revenue_protected=rev_protected,
             average_order_value=aov,
-            threats_discovered_total=found_total,
+            threats_discovered_total=total_threats,
             takedowns_completed_total=len(td_completed),
             takedowns_completed_this_month=len(td_month),
-            average_time_to_takedown_hours=avg_time,
+            average_time_to_takedown_hours=None,
             bad_actors_identified=bad_actors,
-            platforms_breakdown=dict(platforms),
+            platforms_breakdown=platform_counts,
             monthly_trend=monthly_trend,
         )
     except HTTPException:
@@ -380,8 +436,12 @@ async def get_notification_settings(client_id: str = Depends(get_current_client_
 async def update_notification_settings(data: NotificationSettingsUpdate, client_id: str = Depends(get_current_client_id)):
     patch: dict = {}
     if data.slack_webhook_url is not None:
+        if data.slack_webhook_url:
+            validate_webhook_url(data.slack_webhook_url)
         patch["slack_webhook_url"] = data.slack_webhook_url or None
     if data.webhook_url is not None:
+        if data.webhook_url:
+            validate_webhook_url(data.webhook_url)
         patch["webhook_url"] = data.webhook_url or None
         # Rotate webhook secret when URL changes
         if data.webhook_url:

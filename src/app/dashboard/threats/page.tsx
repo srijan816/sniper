@@ -8,6 +8,7 @@ import { SniperChevron } from "@/components/app/sniper-chevron";
 import {
   approveThreat as approveThreatRequest,
   listAssets,
+  listClients,
   listThreatAuditLogs,
   listThreats,
   normalizeThreatStatus,
@@ -70,16 +71,23 @@ export default function ThreatInboxPage() {
   const [loading, setLoading] = useState(true);
   const [auditLoading, setAuditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingContactInfo, setMissingContactInfo] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
-        const [threatList, assetList] = await Promise.all([listThreats(), listAssets()]);
+        const [threatList, assetList, clients] = await Promise.all([listThreats(), listAssets(), listClients()]);
         const assetMap = Object.fromEntries(assetList.map((asset) => [asset.id, asset]));
         setAssets(assetMap);
         setThreats(threatList);
+        const client = clients[0] as Record<string, unknown> | undefined;
+        if (client) {
+          const hasAddress = !!(client.contact_address as string | undefined)?.trim();
+          const hasPhone = !!(client.contact_phone as string | undefined)?.trim();
+          setMissingContactInfo(!hasAddress || !hasPhone);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load threats.");
       } finally {
@@ -168,6 +176,17 @@ export default function ThreatInboxPage() {
 
       {error ? (
         <section className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-app-sm text-destructive">{error}</section>
+      ) : null}
+
+      {missingContactInfo ? (
+        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-app-sm text-amber-800">
+          <span className="mt-0.5 shrink-0 text-amber-500">⚠</span>
+          <span>
+            <strong>Complete your brand profile</strong> — Add a business address and phone number in{" "}
+            <Link href="/dashboard/brand" className="underline hover:no-underline">Brand Settings</Link>{" "}
+            to ensure your DMCA notices meet all legal requirements (17 U.S.C. § 512(c)(3)).
+          </span>
+        </div>
       ) : null}
 
       <section className="space-y-4 rounded-md border bg-card p-4 shadow-sniper-sm">

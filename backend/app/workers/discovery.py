@@ -162,7 +162,22 @@ def run_discovery_for_client(client_id: str):
         .data
         or []
     )
-    whitelist = client.get("whitelist_domains") or []
+    # Build merged whitelist: authorized_sellers table (new) + whitelist_domains column (legacy)
+    try:
+        sellers_resp = _db().table("authorized_sellers").select("domain").eq("client_id", client_id).execute()
+        authorized_domains = [row["domain"].lower().strip() for row in (sellers_resp.data or []) if row.get("domain")]
+    except Exception:
+        authorized_domains = []
+    legacy_whitelist = [d.lower().strip() for d in (client.get("whitelist_domains") or []) if d]
+    # Expand each entry to cover both bare domain and www. variant for robust matching
+    expanded: list[str] = []
+    for d in set(authorized_domains + legacy_whitelist):
+        expanded.append(d)
+        if d.startswith("www."):
+            expanded.append(d[4:])
+        else:
+            expanded.append(f"www.{d}")
+    whitelist = list(set(expanded))
     created = 0
 
     for asset in assets:

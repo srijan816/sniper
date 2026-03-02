@@ -50,14 +50,40 @@ _PERJURY_STATEMENT = (
 _SIGNATURE = "/s/ Authorized Agent — SniperIP Enforcement Automation"
 
 
-def _build_tiktok_description(asset: dict, infringing_url: str, original_url: str, evidence_url: str) -> str:
+def _build_contact_block(client: dict) -> str:
+    """Return plain-text contact block required by 17 U.S.C. § 512(c)(3)(A)(iv)."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    name = client.get("legal_contact_name") or "Authorized Agent"
+    email = client.get("legal_contact_email") or ""
+    phone = client.get("contact_phone") or ""
+    address = client.get("contact_address") or ""
+    if not phone:
+        _log.warning("TikTok DMCA notice missing contact_phone for client %s", client.get("id"))
+    if not address:
+        _log.warning("TikTok DMCA notice missing contact_address for client %s", client.get("id"))
+    lines = [
+        "Contact Information (17 U.S.C. § 512(c)(3)(A)(iv)):",
+        f"Name: {name}",
+        f"Email: {email}",
+    ]
+    if phone:
+        lines.append(f"Phone: {phone}")
+    if address:
+        lines.append(f"Address: {address}")
+    return "\n".join(lines)
+
+
+def _build_tiktok_description(asset: dict, infringing_url: str, original_url: str, evidence_url: str, client: dict | None = None) -> str:
     ai_description = asset.get("ai_description") or asset.get("description") or "Copyrighted original work."
+    contact_block = _build_contact_block(client) if client else ""
     return (
         f"Original work description: {ai_description}\n\n"
         f"Original asset URL: {original_url}\n"
         f"Infringing URL: {infringing_url}\n"
         f"Evidence packet (PDF): {evidence_url}\n\n"
-        f"{_GOOD_FAITH_STATEMENT}\n\n"
+        + (contact_block + "\n\n" if contact_block else "")
+        + f"{_GOOD_FAITH_STATEMENT}\n\n"
         f"{_PERJURY_STATEMENT}\n\n"
         f"{_SIGNATURE}"
     )
@@ -197,7 +223,7 @@ def _submit_via_browser(
     company_name = client.get("company_name") or "SniperIP Client"
     ai_description = asset.get("ai_description") or asset.get("description") or "Copyrighted original work."
 
-    work_description = _build_tiktok_description(asset, infringing_url, original_url, evidence_url)
+    work_description = _build_tiktok_description(asset, infringing_url, original_url, evidence_url, client=client)
 
     form_url = _TIKTOK_IP_FORM_URL
 

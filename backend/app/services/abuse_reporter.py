@@ -130,6 +130,27 @@ def _match_registrar_form(registrar_name: str) -> str | None:
     return None
 
 
+def _build_contact_html(client: dict) -> str:
+    """HTML contact block required by 17 U.S.C. § 512(c)(3)(A)(iv)."""
+    name = client.get("legal_contact_name") or "Authorized Agent"
+    email = client.get("legal_contact_email") or ""
+    phone = client.get("contact_phone") or ""
+    address = client.get("contact_address") or ""
+    if not phone:
+        logger.warning("Abuse report DMCA notice missing contact_phone for client %s", client.get("id"))
+    if not address:
+        logger.warning("Abuse report DMCA notice missing contact_address for client %s", client.get("id"))
+    rows = (
+        f"<li><strong>Name:</strong> {name}</li>"
+        f"<li><strong>Email:</strong> {email}</li>"
+    )
+    if phone:
+        rows += f"<li><strong>Phone:</strong> {phone}</li>"
+    if address:
+        rows += f"<li><strong>Address:</strong> {address}</li>"
+    return f"<h3>Contact Information (17 U.S.C. § 512(c)(3)(A)(iv)):</h3><ul>{rows}</ul>"
+
+
 def _build_dmca_html(
     *,
     contact_name: str,
@@ -139,7 +160,9 @@ def _build_dmca_html(
     loa_url: str,
     evidence_url: str,
     host_domain: str,
+    client: dict | None = None,
 ) -> str:
+    contact_html = _build_contact_html(client) if client else ""
     return (
         "<p>Hello Abuse / DMCA Team,</p>"
         "<p>This is a formal notice of copyright infringement pursuant to 17 U.S.C. § 512(c)(3) "
@@ -153,7 +176,8 @@ def _build_dmca_html(
         f"<li>Letter of Authorization: <a href='{loa_url}'>{loa_url}</a></li>"
         f"<li>Evidence packet (PDF): <a href='{evidence_url}'>{evidence_url}</a></li>"
         "</ul>"
-        "<h3>Required Statutory Statements (17 U.S.C. § 512(c)(3)):</h3>"
+        + contact_html
+        + "<h3>Required Statutory Statements (17 U.S.C. § 512(c)(3)):</h3>"
         f"<p><strong>Good faith belief:</strong> {_GOOD_FAITH_STATEMENT}</p>"
         f"<p><strong>Accuracy and authority:</strong> {_PERJURY_STATEMENT}</p>"
         "<p><strong>Electronic Signature:</strong><br/>"
@@ -223,6 +247,7 @@ def submit_registrar_abuse(ctx: dict, evidence: dict, registrar_info: dict) -> S
         loa_url=loa_url,
         evidence_url=evidence_url,
         host_domain=host_domain,
+        client=client,
     )
 
     # -- Branch: known email address -------------------------------------------

@@ -17,7 +17,6 @@ import resend
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from PIL import Image as PILImage, ImageFilter
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
@@ -29,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-limiter = Limiter(key_func=get_remote_address)
+# Import the shared real-IP extractor so the per-route limit uses the same
+# key function as the global limiter (proxy-aware).
+from app.main import get_real_ip  # noqa: E402 — circular-safe at import time
+limiter = Limiter(key_func=get_real_ip)
 
 
 # ---------------------------------------------------------------------------
