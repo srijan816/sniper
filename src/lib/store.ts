@@ -1,58 +1,9 @@
 import { create } from "zustand";
+import type { Client, Threat } from "./contracts";
 
 // ============================================
 // Types
 // ============================================
-export interface Client {
-    id: string;
-    company_name: string;
-    legal_contact_name: string;
-    legal_contact_email: string;
-    subscription_tier: "FREE" | "STARTER" | "GROWTH" | "AGENCY";
-    monthly_threat_limit: number;
-    current_month_count: number;
-    loa_signed_at: string | null;
-    whitelist_domains: string[];
-    created_at: string;
-}
-
-export interface Threat {
-    id: string;
-    asset_id: string;
-    client_id: string;
-    infringing_url: string;
-    infringing_image_url: string | null;
-    host_domain: string;
-    seller_name: string | null;
-    listing_title: string | null;
-    listing_price: number | null;
-    similarity_score: number;
-    status: string;
-    discovered_at: string;
-    resolved_at: string | null;
-}
-
-export interface Asset {
-    id: string;
-    client_id: string;
-    asset_type: "IMAGE" | "VIDEO";
-    original_filename: string;
-    storage_url: string;
-    thumbnail_url: string | null;
-    status: string;
-    created_at: string;
-}
-
-export interface AuditLog {
-    id: string;
-    threat_id: string;
-    old_status: string | null;
-    new_status: string;
-    changed_by: string;
-    metadata: Record<string, unknown>;
-    changed_at: string;
-}
-
 export interface DLQEntry {
     id: string;
     takedown_id: string;
@@ -77,13 +28,6 @@ export interface CostMetrics {
     serpapi_credits_limit: number;
     hf_compute_hours: number;
     zenrows_bandwidth_mb: number;
-}
-
-export interface ClientAnalytics {
-    threats_found_this_month: number;
-    threats_removed_this_month: number;
-    estimated_revenue_protected: number;
-    average_order_value: number;
 }
 
 // ============================================

@@ -11,12 +11,15 @@ from app.core.config import get_settings
 from app.core.database import get_supabase_client
 from app.services.blacklist_store import BadActorSignals, is_known_bad_actor, record_bad_actor
 from app.services.listing_intel import fetch_listing_intel
-from app.services.serpapi_service import filter_whitelisted, search_google_lens
+from app.services.scrapers import AliExpressEngine, GoogleLensEngine, filter_whitelisted
 from app.services.threat_store import create_or_get_discovered_threat
+from app.services.workflow import WorkflowConflictError, approve_threat as approve_threat_transaction
 from app.services.vector_store import find_similar_assets
 from app.services.vision import embedding_from_image_url
 from app.workers.notifications import send_upgrade_email
 from app.workers.vectorize import ensure_asset_vectorized
+from app.workers.takedown import queue_takedown
+import uuid
 
 
 def _db():
@@ -189,11 +192,22 @@ def run_discovery_for_client(client_id: str):
         if not source_url:
             continue
 
-        candidates = filter_whitelisted(search_google_lens(source_url), whitelist)
+        keyword = asset.get("original_filename", "").replace("-", " ").replace("_", " ").split(".")[0]
+        
+        engines = [GoogleLensEngine(), AliExpressEngine()]
+        raw_candidates = []
+        
+        for engine in engines:
+            raw_candidates.extend(engine.search_by_image(source_url))
+            if keyword and len(keyword) > 3:
+                raw_candidates.extend(engine.search_by_keyword(keyword))
+
+        candidates = filter_whitelisted(raw_candidates, whitelist)
+        
         for candidate in candidates:
             if current + created >= limit:
                 break
-            if not candidate.image_url:
+            if not candidate.listing_url:
                 continue
             if _already_known(asset_id, candidate.listing_url):
                 continue
@@ -207,8 +221,20 @@ def run_discovery_for_client(client_id: str):
             )
             blacklist_hit = _safe_known_bad_actor(actor_signals)
 
-            candidate_embedding = embedding_from_image_url(candidate.image_url)
-            matches = find_similar_assets(candidate_embedding, client_id=client_id, limit=1)
+            # If the engine natively found an image, hash it immediately.
+            # Otherwise we must wait for verified takedowns to provide the asset context.
+            if candidate.image_url:
+                try:
+                    candidate_embedding = embedding_from_image_url(candidate.image_url)
+                    matches = find_similar_assets(candidate_embedding, client_id=client_id, limit=1)
+                except Exception:
+                    matches = []
+            else:
+                matches = []
+                
+            # If we don't have a direct visual match but we matched by precise Keyword logic,
+            # we can optionally queue it for manual verification, but for V2 Phase 2, we 
+            # only auto-generate threats for explicitly matched geometries to avoid false-positive storms.
             if not matches:
                 continue
             best = matches[0]
@@ -224,7 +250,7 @@ def run_discovery_for_client(client_id: str):
             if blacklist_hit and stored_similarity < settings.similarity_threshold:
                 stored_similarity = settings.similarity_threshold + 0.01
 
-            _, created_now = _create_threat(
+            threat_id, created_now = _create_threat(
                 asset_id=asset_id,
                 infringing_url=candidate.listing_url,
                 host_domain=_host(candidate.listing_url),
@@ -234,6 +260,45 @@ def run_discovery_for_client(client_id: str):
             _safe_record_bad_actor(actor_signals)
             if created_now:
                 created += 1
+
+                # Autonomous Eradication execution
+                auto_rules = client.get("automation_rules") or {}
+                auto_thresh = auto_rules.get("auto_takedown_threshold")
+                
+                if auto_thresh and stored_similarity >= float(auto_thresh):
+                    try:
+                        result = approve_threat_transaction(
+                            threat_id=threat_id,
+                            client_id=client_id,
+                            platform=_host(candidate.listing_url),
+                            changed_by="SYSTEM",
+                        )
+                        if result.takedown_id:
+                            queue_takedown(result.takedown_id)
+                    except WorkflowConflictError:
+                        # Another worker or manual action may have moved the threat already.
+                        pass
+                    except Exception:
+                        db = _db()
+                        db.table("threats").update({"status": "APPROVED"}).eq("id", threat_id).execute()
+                        db.table("audit_logs").insert({
+                            "threat_id": threat_id,
+                            "old_status": "DISCOVERED",
+                            "new_status": "APPROVED",
+                            "changed_by": "SYSTEM"
+                        }).execute()
+
+                        takedown_id = str(uuid.uuid4())
+                        db.table("takedown_requests").insert({
+                            "id": takedown_id,
+                            "threat_id": threat_id,
+                            "platform": _host(candidate.listing_url),
+                            "status": "PENDING",
+                            "retry_count": 0,
+                            "submitted_at": None,
+                        }).execute()
+
+                        queue_takedown(takedown_id)
 
     if created:
         _db().table("clients").update({"current_month_count": current + created}).eq("id", client_id).execute()

@@ -5,15 +5,12 @@ import os
 import re
 import socket
 import uuid
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
 
 from app.core.config import get_settings
-from app.core.database import get_supabase_client
-import hashlib
-import hmac
 import secrets
 
 from app.models.schemas import (
@@ -63,6 +60,8 @@ def validate_webhook_url(url: str) -> bool:
 
 
 def _db():
+    from app.core.database import get_supabase_client
+
     db = get_supabase_client()
     if db is None:
         raise HTTPException(status_code=503, detail="Supabase is not configured.")
@@ -80,6 +79,7 @@ def _map_client(row: dict) -> dict:
         "current_month_count": row.get("current_month_count") or 0,
         "loa_signed_at": row.get("loa_signed_at"),
         "whitelist_domains": row.get("whitelist_domains") or [],
+        "automation_rules": row.get("automation_rules") or {},
         "created_at": row.get("created_at") or datetime.utcnow().isoformat(),
     }
 
@@ -87,6 +87,15 @@ def _map_client(row: dict) -> dict:
 def _safe_filename(filename: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]", "-", filename or "document.pdf")
     return cleaned.strip("-") or "document.pdf"
+
+
+def _scoped_client_id(path_client_id: Optional[str], auth_client_id: str) -> str:
+    """Allow `/me` aliases while rejecting cross-tenant access by explicit client id."""
+    if path_client_id in (None, "", "me"):
+        return auth_client_id
+    if path_client_id != auth_client_id:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return auth_client_id
 
 
 @router.get("/", response_model=List[ClientResponse])
@@ -100,10 +109,11 @@ async def list_clients(client_id: str = Depends(get_current_client_id)):
 
 
 @router.get("/{client_id}", response_model=ClientResponse)
-async def get_client(client_id: str = Depends(get_current_client_id)):
+async def get_client(client_id: str, auth_client_id: str = Depends(get_current_client_id)):
     """Get a client by ID."""
     try:
-        res = _db().table("clients").select("*").eq("id", client_id).limit(1).execute()
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
+        res = _db().table("clients").select("*").eq("id", scoped_client_id).limit(1).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Client not found")
@@ -116,41 +126,38 @@ async def get_client(client_id: str = Depends(get_current_client_id)):
 
 @router.post("/", response_model=ClientResponse)
 async def create_client(data: ClientCreate, client_id: str = Depends(get_current_client_id)):
-    """Register a new client — requires authentication."""
-    row = {
-        "id": str(uuid.uuid4()),
+    """Initialize or update the authenticated client's profile."""
+    patch = {
         "company_name": data.company_name,
         "legal_contact_name": data.legal_contact_name,
         "legal_contact_email": data.legal_contact_email,
-        "subscription_tier": "FREE",
-        "monthly_threat_limit": 0,
-        "current_month_count": 0,
-        "whitelist_domains": [],
     }
     try:
-        res = _db().table("clients").insert(row).execute()
+        res = _db().table("clients").update(patch).eq("id", client_id).execute()
         rows = res.data or []
         if not rows:
-            raise HTTPException(status_code=500, detail="Client creation failed.")
+            raise HTTPException(status_code=404, detail="Client not found")
         return _map_client(rows[0])
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to create client: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Failed to update client profile: {exc}") from exc
 
 
 @router.patch("/{client_id}", response_model=ClientResponse)
 async def update_client(
+    client_id: str,
     data: dict,
-    client_id: str = Depends(get_current_client_id),
+    auth_client_id: str = Depends(get_current_client_id),
 ):
     """Update allowed fields on the authenticated client (whitelist_domains, company_name, etc.)."""
+    scoped_client_id = _scoped_client_id(client_id, auth_client_id)
     allowed = {"company_name", "legal_contact_name", "legal_contact_email", "whitelist_domains", "contact_address", "contact_phone"}
     patch = {k: v for k, v in data.items() if k in allowed}
     if not patch:
         raise HTTPException(status_code=400, detail="No updatable fields provided")
     try:
-        res = _db().table("clients").update(patch).eq("id", client_id).execute()
+        res = _db().table("clients").update(patch).eq("id", scoped_client_id).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Client not found")
@@ -163,16 +170,18 @@ async def update_client(
 
 @router.post("/{client_id}/loa-upload")
 async def upload_loa_document(
+    client_id: str,
     file: UploadFile = File(...),
-    client_id: str = Depends(get_current_client_id),
+    auth_client_id: str = Depends(get_current_client_id),
 ):
     """Upload a signed Letter of Authorization (LOA) and store public URL."""
+    scoped_client_id = _scoped_client_id(client_id, auth_client_id)
     settings = get_settings()
     bucket = settings.loa_storage_bucket or os.getenv("LOA_STORAGE_BUCKET", "legal-documents")
     fallback_bucket = settings.supabase_storage_bucket or os.getenv("SUPABASE_STORAGE_BUCKET", "assets")
     filename = _safe_filename(file.filename or "loa.pdf")
     loa_id = str(uuid.uuid4())
-    path = f"{client_id}/loa/{loa_id}-{filename}"
+    path = f"{scoped_client_id}/loa/{loa_id}-{filename}"
 
     data = file.file.read()
     if not data:
@@ -209,7 +218,7 @@ async def upload_loa_document(
                     "loa_signed_at": datetime.utcnow().isoformat(),
                 }
             )
-            .eq("id", client_id)
+            .eq("id", scoped_client_id)
             .execute()
             .data
             or []
@@ -218,7 +227,7 @@ async def upload_loa_document(
             raise HTTPException(status_code=404, detail="Client not found")
         return {
             "status": "uploaded",
-            "client_id": client_id,
+            "client_id": scoped_client_id,
             "loa_document_url": loa_document_url,
             "loa_signed_at": updated[0].get("loa_signed_at"),
         }
@@ -229,14 +238,15 @@ async def upload_loa_document(
 
 
 @router.get("/{client_id}/analytics", response_model=ClientAnalytics)
-async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
+async def get_client_analytics(client_id: str, auth_client_id: str = Depends(get_current_client_id)):
     """Get expanded analytics for a client — DB-level aggregation only (no full table scans)."""
     from datetime import datetime, timezone
 
     try:
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
         db = _db()
         # Client record (needed for AOV only — single row, not the threats table)
-        client_res = db.table("clients").select("average_product_price").eq("id", client_id).limit(1).execute()
+        client_res = db.table("clients").select("average_product_price").eq("id", scoped_client_id).limit(1).execute()
         if not (client_res.data or []):
             raise HTTPException(status_code=404, detail="Client not found")
         aov = float((client_res.data[0] or {}).get("average_product_price") or 120.0)
@@ -246,11 +256,11 @@ async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
         total_threats = (
-            db.table("threats").select("id", count="exact").eq("client_id", client_id).execute().count or 0
+            db.table("threats").select("id", count="exact").eq("client_id", scoped_client_id).execute().count or 0
         )
         threats_this_month = (
             db.table("threats").select("id", count="exact")
-            .eq("client_id", client_id)
+            .eq("client_id", scoped_client_id)
             .gte("discovered_at", month_start)
             .execute().count or 0
         )
@@ -258,39 +268,32 @@ async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
         removed_statuses_tuple = ("REMOVED", "TAKEDOWN_CONFIRMED")
         removed_total = sum(
             db.table("threats").select("id", count="exact")
-            .eq("client_id", client_id)
+            .eq("client_id", scoped_client_id)
             .eq("status", s)
             .execute().count or 0
             for s in removed_statuses_tuple
         )
         removed_this_month = sum(
             db.table("threats").select("id", count="exact")
-            .eq("client_id", client_id)
+            .eq("client_id", scoped_client_id)
             .eq("status", s)
             .gte("discovered_at", month_start)
             .execute().count or 0
             for s in removed_statuses_tuple
         )
 
-        # Takedowns count — only 3 light columns, scoped to client via threat join is complex;
-        # use a simpler pattern: count statuses directly on takedowns (no full row fetch)
+        threat_id_rows = db.table("threats").select("id").eq("client_id", scoped_client_id).execute().data or []
+        owned_threat_ids = [row["id"] for row in threat_id_rows if row.get("id")]
+
         takedowns = []
-        for table_name in ("takedown_requests", "takedowns"):
-            try:
-                td_res = db.table(table_name).select("status,completed_at,platform").eq("threat_id",
-                    db.table("threats").select("id").eq("client_id", client_id)
-                ).execute()
-                takedowns = td_res.data or []
-                break
-            except Exception:
-                pass
-        # Fallback: just count with no join if the above fails
-        if not takedowns:
-            try:
-                td_res = db.table("takedowns").select("status,completed_at,platform").execute()
-                takedowns = td_res.data or []
-            except Exception:
-                takedowns = []
+        if owned_threat_ids:
+            for table_name in ("takedown_requests", "takedowns"):
+                try:
+                    td_res = db.table(table_name).select("status,completed_at,platform").in_("threat_id", owned_threat_ids).execute()
+                    takedowns = td_res.data or []
+                    break
+                except Exception:
+                    continue
 
         td_completed = [td for td in takedowns if (td.get("status") or "") in {"CONFIRMED", "SUBMITTED", "COMPLETED"}]
         td_month = [
@@ -300,7 +303,7 @@ async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
 
         # Platform breakdown — fetch only one column (not *)
         try:
-            plat_res = db.table("threats").select("host_domain").eq("client_id", client_id).execute()
+            plat_res = db.table("threats").select("host_domain").eq("client_id", scoped_client_id).execute()
             from collections import Counter
             platform_counts: dict = dict(Counter(
                 (r.get("host_domain") or "other").lower() for r in (plat_res.data or [])
@@ -317,7 +320,7 @@ async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
         # Monthly trend — use the SQL RPC (aggregation in DB, not Python)
         monthly_trend: list = []
         try:
-            rpc_res = db.rpc("get_monthly_threat_trend", {"p_client_id": client_id}).execute()
+            rpc_res = db.rpc("get_monthly_threat_trend", {"p_client_id": scoped_client_id}).execute()
             for row in (rpc_res.data or []):
                 monthly_trend.append({
                     "month": row.get("month", ""),
@@ -348,7 +351,7 @@ async def get_client_analytics(client_id: str = Depends(get_current_client_id)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch analytics: {exc}") from exc
 
 
-def _in_month_year(ts_str: str | None, month: int, year: int) -> bool:
+def _in_month_year(ts_str: Optional[str], month: int, year: int) -> bool:
     if not ts_str:
         return False
     try:
@@ -362,20 +365,22 @@ def _in_month_year(ts_str: str | None, month: int, year: int) -> bool:
 # ── Authorized Sellers / Whitelist (Feature 7) ───────────────────────────────
 
 @router.get("/{client_id}/authorized-sellers", response_model=List[AuthorizedSellerResponse])
-async def list_authorized_sellers(client_id: str = Depends(get_current_client_id)):
+async def list_authorized_sellers(client_id: str, auth_client_id: str = Depends(get_current_client_id)):
     try:
-        res = _db().table("authorized_sellers").select("*").eq("client_id", client_id).order("created_at", desc=True).execute()
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
+        res = _db().table("authorized_sellers").select("*").eq("client_id", scoped_client_id).order("created_at", desc=True).execute()
         return res.data or []
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list authorized sellers: {exc}") from exc
 
 
 @router.post("/{client_id}/authorized-sellers", response_model=AuthorizedSellerResponse)
-async def add_authorized_seller(data: AuthorizedSellerCreate, client_id: str = Depends(get_current_client_id)):
+async def add_authorized_seller(data: AuthorizedSellerCreate, client_id: str, auth_client_id: str = Depends(get_current_client_id)):
+    scoped_client_id = _scoped_client_id(client_id, auth_client_id)
     domain = data.domain.strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
     row = {
         "id": str(uuid.uuid4()),
-        "client_id": client_id,
+        "client_id": scoped_client_id,
         "domain": domain,
         "seller_name": data.seller_name,
         "platform": data.platform,
@@ -396,9 +401,10 @@ async def add_authorized_seller(data: AuthorizedSellerCreate, client_id: str = D
 
 
 @router.delete("/{client_id}/authorized-sellers/{seller_id}")
-async def remove_authorized_seller(seller_id: str, client_id: str = Depends(get_current_client_id)):
+async def remove_authorized_seller(client_id: str, seller_id: str, auth_client_id: str = Depends(get_current_client_id)):
     try:
-        res = _db().table("authorized_sellers").delete().eq("id", seller_id).eq("client_id", client_id).execute()
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
+        res = _db().table("authorized_sellers").delete().eq("id", seller_id).eq("client_id", scoped_client_id).execute()
         if not (res.data or []):
             raise HTTPException(status_code=404, detail="Authorized seller not found")
         return {"status": "deleted", "seller_id": seller_id}
@@ -411,9 +417,11 @@ async def remove_authorized_seller(seller_id: str, client_id: str = Depends(get_
 # ── Notification Settings (Feature 8) ────────────────────────────────────────
 
 @router.get("/{client_id}/notifications", response_model=NotificationSettingsResponse)
-async def get_notification_settings(client_id: str = Depends(get_current_client_id)):
+@router.get("/{client_id}/notification-settings", response_model=NotificationSettingsResponse)
+async def get_notification_settings(client_id: str, auth_client_id: str = Depends(get_current_client_id)):
     try:
-        res = _db().table("clients").select("slack_webhook_url,webhook_url,webhook_secret,notification_prefs").eq("id", client_id).limit(1).execute()
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
+        res = _db().table("clients").select("slack_webhook_url,webhook_url,webhook_secret,notification_prefs").eq("id", scoped_client_id).limit(1).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Client not found")
@@ -433,7 +441,9 @@ async def get_notification_settings(client_id: str = Depends(get_current_client_
 
 
 @router.put("/{client_id}/notifications", response_model=NotificationSettingsResponse)
-async def update_notification_settings(data: NotificationSettingsUpdate, client_id: str = Depends(get_current_client_id)):
+@router.patch("/{client_id}/notification-settings", response_model=NotificationSettingsResponse)
+async def update_notification_settings(data: NotificationSettingsUpdate, client_id: str, auth_client_id: str = Depends(get_current_client_id)):
+    scoped_client_id = _scoped_client_id(client_id, auth_client_id)
     patch: dict = {}
     if data.slack_webhook_url is not None:
         if data.slack_webhook_url:
@@ -451,7 +461,7 @@ async def update_notification_settings(data: NotificationSettingsUpdate, client_
     if not patch:
         raise HTTPException(status_code=400, detail="No settings to update")
     try:
-        res = _db().table("clients").update(patch).eq("id", client_id).execute()
+        res = _db().table("clients").update(patch).eq("id", scoped_client_id).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Client not found")
@@ -470,15 +480,18 @@ async def update_notification_settings(data: NotificationSettingsUpdate, client_
 
 
 @router.post("/{client_id}/notifications/test")
-async def test_notification(client_id: str = Depends(get_current_client_id)):
+@router.post("/{client_id}/notification-settings/test")
+async def test_notification(client_id: str, payload: Optional[dict] = None, auth_client_id: str = Depends(get_current_client_id)):
     """Send a test notification through all configured channels."""
     try:
+        scoped_client_id = _scoped_client_id(client_id, auth_client_id)
         db = _db()
-        res = db.table("clients").select("*").eq("id", client_id).limit(1).execute()
+        res = db.table("clients").select("*").eq("id", scoped_client_id).limit(1).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=404, detail="Client not found")
         client = rows[0]
+        channel = ((payload or {}).get("channel") or "configured channels").strip()
         from app.services.notification_service import dispatch_client_notification
         dispatch_client_notification(
             client=client,
@@ -489,7 +502,7 @@ async def test_notification(client_id: str = Depends(get_current_client_id)):
             slack_message=":white_check_mark: *Test notification* — SniperIP is connected successfully!",
             webhook_payload={"message": "Test notification from SniperIP"},
         )
-        return {"status": "sent"}
+        return {"status": "sent", "message": f"Test notification sent via {channel}."}
     except HTTPException:
         raise
     except Exception as exc:

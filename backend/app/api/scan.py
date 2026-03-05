@@ -1,5 +1,4 @@
 """Free scan PLG endpoint — public, rate-limited, lead-capture."""
-from __future__ import annotations
 
 import base64
 import hashlib
@@ -187,7 +186,7 @@ async def free_scan(
         phash_value = hashlib.sha256(file_bytes).hexdigest()[:16]
 
     # 4. Determine requester IP
-    ip_address = get_remote_address(request)
+    ip_address = get_real_ip(request)
 
     # 5. Store lead record
     scan_id = str(uuid.uuid4())

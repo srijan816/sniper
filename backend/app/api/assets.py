@@ -9,7 +9,6 @@ import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 
-from app.core.database import get_supabase_client
 from app.models.schemas import AssetResponse
 from app.workers.vectorize import vectorize_asset_task
 from app.api.deps import get_current_client_id
@@ -20,6 +19,8 @@ router = APIRouter()
 
 
 def _db():
+    from app.core.database import get_supabase_client
+
     db = get_supabase_client()
     if db is None:
         raise HTTPException(status_code=503, detail="Supabase is not configured.")

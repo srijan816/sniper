@@ -7,7 +7,6 @@ import stripe
 from fastapi import APIRouter, HTTPException, Request
 
 from app.core.config import get_settings
-from app.core.database import get_supabase_client
 
 router = APIRouter()
 
@@ -20,6 +19,8 @@ TIER_LIMITS = {
 
 
 def _db():
+    from app.core.database import get_supabase_client
+
     db = get_supabase_client()
     if db is None:
         raise HTTPException(status_code=503, detail="Supabase is not configured.")

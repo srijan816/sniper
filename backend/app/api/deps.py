@@ -3,6 +3,7 @@ import os
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from app.core.config import get_settings
 from app.core.database import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,8 @@ security = HTTPBearer()
 
 def get_current_client_id(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     db = get_supabase_client()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase is not configured.")
     try:
         token = credentials.credentials
         user_res = db.auth.get_user(token)
@@ -61,7 +64,9 @@ def get_current_client_id(credentials: HTTPAuthorizationCredentials = Depends(se
         db.table("clients").insert({
             "id": new_client_id,
             "owner_id": owner_id,
-            "company_name": user.email,
+            "company_name": user.email or "New Client",
+            "legal_contact_name": (user.email or "New Client").split("@")[0][:120] or "New Client",
+            "legal_contact_email": user.email or f"{new_client_id}@example.invalid",
             "subscription_tier": "FREE",
             "monthly_threat_limit": 1000,
             "current_month_count": 0,
@@ -81,6 +86,8 @@ def get_current_client_id(credentials: HTTPAuthorizationCredentials = Depends(se
 def get_admin_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """Dependency that verifies the authenticated user is a configured admin."""
     db = get_supabase_client()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase is not configured.")
     try:
         token = credentials.credentials
         user_res = db.auth.get_user(token)
@@ -92,7 +99,8 @@ def get_admin_user(credentials: HTTPAuthorizationCredentials = Depends(security)
         if not user_email:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
-        raw_admin_emails = os.environ.get("ADMIN_EMAILS", "")
+        settings = get_settings()
+        raw_admin_emails = os.environ.get("ADMIN_EMAILS") or settings.admin_emails or ""
         admin_emails = {e.strip().lower() for e in raw_admin_emails.split(",") if e.strip()}
         if user_email not in admin_emails:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")

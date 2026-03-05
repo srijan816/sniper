@@ -1,19 +1,27 @@
 """Threat management API routes (Supabase-backed)."""
 from datetime import datetime
+import logging
 from typing import List, Optional
-import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 
-from app.core.database import get_supabase_client
 from app.models.schemas import AuditLogResponse, ThreatResponse
+from app.services.workflow import (
+    WorkflowConflictError,
+    WorkflowNotFoundError,
+    approve_threat as approve_threat_transaction,
+    transition_threat_status,
+)
 from app.workers.takedown import queue_takedown
 from app.api.deps import get_current_client_id
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _db():
+    from app.core.database import get_supabase_client
+
     db = get_supabase_client()
     if db is None:
         raise HTTPException(status_code=503, detail="Supabase is not configured.")
@@ -38,6 +46,8 @@ def _map_threat(row: dict, client_id: Optional[str]) -> dict:
         "seller_name": row.get("seller_name"),
         "listing_title": row.get("listing_title"),
         "listing_price": row.get("listing_price"),
+        "estimated_stock": row.get("estimated_stock"),
+        "financial_impact": row.get("financial_impact"),
         "similarity_score": row.get("similarity_score") or 0.0,
         "ai_explanation": row.get("ai_explanation"),
         "status": row.get("status") or "DISCOVERED",
@@ -185,26 +195,48 @@ async def approve_threat(threat_id: str, client_id: str = Depends(get_current_cl
     try:
         db = _db()
         threat = _verify_threat_ownership(db, threat_id, client_id)
-        old_status = threat.get("status")
-        if old_status not in {"DISCOVERED", "PENDING_APPROVAL"}:
-            raise HTTPException(status_code=400, detail=f"Cannot approve threat in status {old_status}")
+        try:
+            result = approve_threat_transaction(
+                threat_id=threat_id,
+                client_id=client_id,
+                platform=_derive_platform(threat.get("host_domain") or ""),
+                changed_by="CLIENT_USER",
+            )
+            row = result.threat
+            if result.takedown_id:
+                try:
+                    queue_takedown(result.takedown_id)
+                except Exception as exc:
+                    logger.warning("Approved threat %s but failed to queue takedown %s: %s", threat_id, result.takedown_id, exc)
+        except WorkflowNotFoundError:
+            raise HTTPException(status_code=404, detail="Threat not found")
+        except WorkflowConflictError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            old_status = threat.get("status")
+            if old_status not in {"DISCOVERED", "PENDING_APPROVAL"}:
+                raise HTTPException(status_code=400, detail=f"Cannot approve threat in status {old_status}")
 
-        updated = db.table("threats").update({"status": "APPROVED"}).eq("id", threat_id).execute().data or []
-        _write_audit_log(threat_id, old_status, "APPROVED", "CLIENT_USER")
+            updated = db.table("threats").update({"status": "APPROVED"}).eq("id", threat_id).execute().data or []
+            _write_audit_log(threat_id, old_status, "APPROVED", "CLIENT_USER")
 
-        takedown_id = str(uuid.uuid4())
-        takedown_row = {
-            "id": takedown_id,
-            "threat_id": threat_id,
-            "platform": _derive_platform(threat.get("host_domain") or ""),
-            "status": "PENDING",
-            "retry_count": 0,
-            "submitted_at": None,
-        }
-        _with_takedown_table(lambda table: db.table(table).insert(takedown_row).execute())
-        queue_takedown(takedown_id)
+            takedown_row = {
+                "threat_id": threat_id,
+                "platform": _derive_platform(threat.get("host_domain") or ""),
+                "status": "PENDING",
+                "retry_count": 0,
+                "submitted_at": None,
+            }
+            created = _with_takedown_table(lambda table: db.table(table).insert(takedown_row).execute()).data or []
+            if created:
+                takedown_id = created[0].get("id")
+                if takedown_id:
+                    try:
+                        queue_takedown(str(takedown_id))
+                    except Exception as exc:
+                        logger.warning("Fallback approve queued persisted takedown late for threat %s: %s", threat_id, exc)
+            row = updated[0] if updated else threat
 
-        row = updated[0] if updated else threat
         asset_map = _fetch_asset_client_map([row.get("asset_id")] if row.get("asset_id") else [])
         return _map_threat(row, asset_map.get(row.get("asset_id")))
     except HTTPException:
@@ -218,12 +250,24 @@ async def whitelist_threat(threat_id: str, client_id: str = Depends(get_current_
     """Client whitelists a threat (false positive) — AUDIT LOGGED."""
     try:
         db = _db()
-        threat = _verify_threat_ownership(db, threat_id, client_id)
-        old_status = threat.get("status")
-
-        updated = db.table("threats").update({"status": "WHITELISTED"}).eq("id", threat_id).execute().data or []
-        _write_audit_log(threat_id, old_status, "WHITELISTED", "CLIENT_USER")
-        row = updated[0] if updated else threat
+        _verify_threat_ownership(db, threat_id, client_id)
+        try:
+            row = transition_threat_status(
+                threat_id=threat_id,
+                client_id=client_id,
+                new_status="WHITELISTED",
+                changed_by="CLIENT_USER",
+            ).threat
+        except WorkflowNotFoundError:
+            raise HTTPException(status_code=404, detail="Threat not found")
+        except WorkflowConflictError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            threat = _verify_threat_ownership(db, threat_id, client_id)
+            old_status = threat.get("status")
+            updated = db.table("threats").update({"status": "WHITELISTED"}).eq("id", threat_id).execute().data or []
+            _write_audit_log(threat_id, old_status, "WHITELISTED", "CLIENT_USER")
+            row = updated[0] if updated else threat
         asset_map = _fetch_asset_client_map([row.get("asset_id")] if row.get("asset_id") else [])
         return _map_threat(row, asset_map.get(row.get("asset_id")))
     except HTTPException:
@@ -237,12 +281,24 @@ async def reject_threat(threat_id: str, client_id: str = Depends(get_current_cli
     """Client rejects a threat — AUDIT LOGGED."""
     try:
         db = _db()
-        threat = _verify_threat_ownership(db, threat_id, client_id)
-        old_status = threat.get("status")
-
-        updated = db.table("threats").update({"status": "REJECTED"}).eq("id", threat_id).execute().data or []
-        _write_audit_log(threat_id, old_status, "REJECTED", "CLIENT_USER")
-        row = updated[0] if updated else threat
+        _verify_threat_ownership(db, threat_id, client_id)
+        try:
+            row = transition_threat_status(
+                threat_id=threat_id,
+                client_id=client_id,
+                new_status="REJECTED",
+                changed_by="CLIENT_USER",
+            ).threat
+        except WorkflowNotFoundError:
+            raise HTTPException(status_code=404, detail="Threat not found")
+        except WorkflowConflictError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            threat = _verify_threat_ownership(db, threat_id, client_id)
+            old_status = threat.get("status")
+            updated = db.table("threats").update({"status": "REJECTED"}).eq("id", threat_id).execute().data or []
+            _write_audit_log(threat_id, old_status, "REJECTED", "CLIENT_USER")
+            row = updated[0] if updated else threat
         asset_map = _fetch_asset_client_map([row.get("asset_id")] if row.get("asset_id") else [])
         return _map_threat(row, asset_map.get(row.get("asset_id")))
     except HTTPException:

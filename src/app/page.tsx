@@ -3,311 +3,332 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Eye, Radar, Workflow } from "lucide-react";
-import { ChevronIcon } from "@/components/marketing/chevron-icon";
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  ChevronRight,
+  FileCheck2,
+  Radar,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Workflow,
+} from "lucide-react";
 import { PricingGrid } from "@/components/marketing/pricing-grid";
 import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
 import { FreeScan } from "@/components/FreeScan";
 
-type DemoState = "idle" | "submitted";
+type DispatchState = "idle" | "queued";
 
-const monitoringPlatforms = ["Shopify", "Meta", "TikTok", "Amazon"];
+const heroStats = [
+  { label: "median takedown start", value: "< 24 hrs" },
+  { label: "evidence trail", value: "immutable" },
+  { label: "review mode", value: "human-in-loop" },
+] as const;
 
-const howSteps = [
+const operatingLoop = [
   {
-    title: "Ingest",
-    body: "Upload visual assets. Our Vision-Language Models map the semantic DNA of your products.",
-    icon: Eye,
+    step: "01",
+    title: "Map your canon",
+    body: "Upload campaign renders, PDP imagery, and video. SniperIP fingerprints every asset before it goes live.",
+    icon: Sparkles,
   },
   {
-    title: "Monitor",
-    body: "Continuous scanning across global e-commerce and social footprints.",
+    step: "02",
+    title: "Hunt marketplace drift",
+    body: "Radar sweeps open web, social commerce, and marketplace copies while respecting partner whitelists.",
     icon: Radar,
   },
   {
-    title: "Enforce",
-    body: "One-click, legally compliant takedowns powered by headless automation.",
+    step: "03",
+    title: "File with receipts",
+    body: "The enforcement queue ships every takedown with the supporting evidence packet, contact metadata, and audit trail.",
     icon: Workflow,
   },
 ] as const;
 
-const techCards = [
+const proofCards = [
   {
-    title: "SigLIP 2 Vision AI",
-    body: "Catches fakes even when infringers crop, color-shift, or watermark the original creative.",
+    eyebrow: "Threat inbox",
+    title: "A queue designed for brand operators, not AI tourists.",
+    body: "The UI is tuned for decision velocity: approve, whitelist, or escalate without losing the forensic trail behind each call.",
   },
   {
-    title: "512(f) Safe Harbor",
-    body: "Every action is backed by digitally executed LOAs and an immutable audit trail, reducing legal risk from false claims.",
+    eyebrow: "Legal posture",
+    title: "Every action is documented for defensibility.",
+    body: "LOAs, contact metadata, and timestamped audit events keep enforcement fast without becoming legally sloppy.",
   },
   {
-    title: "Playwright RPA Automation",
-    body: "Headless workflows resolve repetitive abuse-form submissions across platform-specific reporting flows.",
-  },
-  {
-    title: "Dynamic Whitelisting",
-    body: "Granular domain controls keep authorized distributors and wholesale partners out of enforcement queues.",
+    eyebrow: "Coverage",
+    title: "Built for the channels where clones actually spread.",
+    body: "Shopify storefronts, Meta surfaces, Amazon-style marketplaces, and long-tail domains sit in the same enforcement system.",
   },
 ] as const;
 
+const signalRows = [
+  { label: "Signal", value: "Visual similarity, host history, seller fingerprints" },
+  { label: "Decision", value: "Approve, suppress, or auto-route by threshold" },
+  { label: "Output", value: "Platform filing, evidence locker, notification dispatch" },
+] as const;
+
 export default function MarketingHomePage() {
-  const [demoState, setDemoState] = useState<DemoState>("idle");
+  const [dispatchState, setDispatchState] = useState<DispatchState>("idle");
 
   useEffect(() => {
-    if (demoState !== "submitted") {
+    if (dispatchState !== "queued") {
       return;
     }
 
-    const id = window.setTimeout(() => setDemoState("idle"), 2800);
-    return () => window.clearTimeout(id);
-  }, [demoState]);
+    const timeout = window.setTimeout(() => setDispatchState("idle"), 2800);
+    return () => window.clearTimeout(timeout);
+  }, [dispatchState]);
 
   return (
-    <div className="min-h-screen bg-white text-[#1A1C24]">
+    <div className="min-h-screen bg-[#f3efe3] text-[#141315]">
       <SiteHeader />
 
-      <main>
-        <section className="mx-auto w-full max-w-7xl px-6 pb-14 pt-12">
-          <div className="flex flex-col gap-10 lg:grid lg:grid-cols-12 lg:items-center">
-            <div className="lg:col-span-6">
-              <h1 className="font-[family-name:var(--font-heading)] text-5xl font-extrabold leading-tight tracking-tight md:text-6xl">
-                Automated IP Protection for D2C Brands.
+      <main className="overflow-hidden">
+        <section className="relative border-b border-[#141315]/10">
+          <div className="absolute inset-0 tactical-grid opacity-40" />
+          <div className="absolute left-[-8rem] top-20 h-64 w-64 rounded-full bg-[#10D94B]/10 blur-3xl" />
+          <div className="absolute right-[-6rem] top-12 h-72 w-72 rounded-full bg-[#c9783b]/15 blur-3xl" />
+
+          <div className="relative mx-auto grid w-full max-w-7xl gap-12 px-6 pb-16 pt-12 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:pb-24 lg:pt-16">
+            <div>
+              <div className="inline-flex items-center gap-3 rounded-full border border-[#141315]/12 bg-white/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5d5b57]">
+                <span className="marketing-status-dot h-2 w-2 rounded-full bg-[#10D94B]" />
+                Counterfeit enforcement operating system
+              </div>
+
+              <h1 className="mt-6 max-w-4xl font-[family-name:var(--font-heading)] text-5xl font-bold leading-[0.94] tracking-[-0.05em] md:text-7xl">
+                Protect the product before copycats turn your growth into their margin.
               </h1>
-              <p className="mt-6 max-w-2xl text-lg leading-[1.6] text-[#475569] md:text-xl">
-                Identify and neutralize counterfeit products across Shopify,
-                Meta, and global marketplaces in under 24 hours.
-                Enterprise-grade DMCA enforcement at machine speed.
+
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-[#4f4b44] md:text-xl">
+                SniperIP gives D2C teams a live enforcement desk: visual monitoring, threat review, evidence packaging, and takedown execution in one system.
               </p>
 
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
                   href="/auth/login"
-                  aria-label="Start free SniperIP scan"
-                  className="inline-flex items-center gap-2 rounded-md bg-[#10D94B] px-5 py-3 text-sm font-semibold text-[#1A1C24] shadow-[0_4px_6px_-1px_rgba(26,28,36,0.08),0_2px_4px_-1px_rgba(26,28,36,0.04)] transition-all duration-200 ease-out hover:scale-105 hover:shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10D94B] focus-visible:ring-offset-2"
+                  className="inline-flex items-center gap-2 rounded-full bg-[#141315] px-6 py-3 text-sm font-semibold text-[#f3efe3] transition hover:-translate-y-0.5"
                 >
                   Start Free Scan
-                  <ChevronIcon className="h-3 w-3" />
+                  <ChevronRight className="h-4 w-4" />
                 </Link>
                 <Link
                   href="/pricing"
-                  aria-label="View SniperIP pricing"
-                  className="inline-flex items-center gap-2 rounded-md border border-[#E2E8F0] bg-white px-5 py-3 text-sm font-semibold text-[#1A1C24] transition-all duration-200 ease-out hover:border-[#1A1C24] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10D94B] focus-visible:ring-offset-2"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#141315]/12 bg-white/70 px-6 py-3 text-sm font-semibold text-[#141315] transition hover:border-[#141315]"
                 >
-                  View Pricing
+                  Review Plans
+                  <ArrowUpRight className="h-4 w-4" />
                 </Link>
               </div>
-            </div>
 
-            <div className="lg:col-span-6">
-              <div className="overflow-hidden rounded-md border border-[#E2E8F0] bg-white shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)]">
-                <Image
-                  src="/generated/1.png"
-                  alt="SniperIP dashboard showing automated threat detection and enforcement workflow"
-                  width={1600}
-                  height={1000}
-                  priority
-                  className="h-auto w-full"
-                />
+              <div className="mt-10 grid gap-3 sm:grid-cols-3">
+                {heroStats.map((item) => (
+                  <div key={item.label} className="signal-frame rounded-3xl border border-[#141315]/10 bg-white/80 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6b675f]">{item.label}</p>
+                    <p className="mt-2 text-2xl font-semibold text-[#141315]">{item.value}</p>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
 
-          <div className="mt-10 rounded-md border border-[#E2E8F0] bg-[#F8F9FA] px-4 py-4 text-center">
-            <p className="text-sm font-medium text-[#1A1C24]">
-              Protecting Revenue for Top D2C Brands
-            </p>
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-              {monitoringPlatforms.map((platform) => (
-                <span
-                  key={platform}
-                  className="rounded-md border border-[#E2E8F0] bg-white px-3 py-1 text-xs text-[#475569]"
-                >
-                  {platform}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-[#F8F9FA]">
-          <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-10 px-6 py-16 md:grid-cols-2 md:items-center">
-            <div className="space-y-3">
-              <article className="rounded-md border border-[#E2E8F0] bg-white p-4 shadow-[0_4px_6px_-1px_rgba(26,28,36,0.08),0_2px_4px_-1px_rgba(26,28,36,0.04)]">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#475569]">
-                  Original Product Render
-                </p>
-                <div className="h-24 rounded-md border border-[#E2E8F0] bg-gradient-to-r from-slate-900 to-slate-700" />
-              </article>
-
-              {["Counterfeit Listing A", "Counterfeit Listing B", "Counterfeit Listing C"].map(
-                (label) => (
-                  <article
-                    key={label}
-                    className="rounded-md border border-[#E2E8F0] bg-white p-4"
-                  >
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#475569]">
-                      {label}
-                    </p>
-                    <div className="relative h-16 rounded-md border border-red-500/70 bg-slate-100">
-                      <span className="absolute right-2 top-2 rounded-sm bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                        Infringement Detected
-                      </span>
+            <div className="marketing-float">
+              <div className="signal-frame relative overflow-hidden rounded-[2rem] border border-[#141315]/12 bg-[#141315] p-5 text-white">
+                <div className="marketing-sweep absolute inset-0 opacity-70" />
+                <div className="relative">
+                  <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/60">Evidence board</p>
+                      <p className="mt-1 text-lg font-semibold">High-confidence listing detected</p>
                     </div>
-                  </article>
-                ),
-              )}
-            </div>
-
-            <div>
-              <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
-                Viral success invites instant theft.
-              </h2>
-              <p className="mt-5 text-base leading-[1.6] text-[#475569]">
-                While traditional counsel takes weeks to draft notices,
-                SniperIP continuously maps your visual assets and surgically
-                enforces your rights the moment a clone appears.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section id="how-it-works" className="mx-auto w-full max-w-7xl px-6 py-16">
-          <div className="mb-10 text-center">
-            <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
-              How SniperIP Works
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {howSteps.map((step, index) => {
-              const Icon = step.icon;
-              return (
-                <article
-                  key={step.title}
-                  className="rounded-md border border-[#E2E8F0] bg-white p-6 shadow-[0_4px_6px_-1px_rgba(26,28,36,0.08),0_2px_4px_-1px_rgba(26,28,36,0.04)] transition-all duration-200 ease-out hover:shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)]"
-                >
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-[#E2E8F0] bg-[#F8F9FA] px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#475569]">
-                    {index === 2 ? (
-                      <ChevronIcon className="h-3 w-3 text-[#1A1C24]" />
-                    ) : (
-                      <Icon className="h-4 w-4 text-[#1A1C24]" />
-                    )}
-                    {step.title}
+                    <div className="rounded-full bg-[#10D94B]/15 px-3 py-1 text-xs font-semibold text-[#9ef0ba]">
+                      94% match
+                    </div>
                   </div>
-                  <p className="text-base text-[#475569]">{step.body}</p>
-                </article>
-              );
-            })}
-          </div>
-        </section>
 
-        <section id="demo" className="bg-[#1A1C24]">
-          <div className="mx-auto w-full max-w-7xl px-6 py-16">
-            <div className="mb-8 text-center">
-              <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight text-white md:text-5xl">
-                Experience the SniperIP Dashboard.
-              </h2>
-            </div>
-
-            <div className="relative overflow-hidden rounded-md border border-white/20 bg-[#10131B] p-4 shadow-[0_10px_15px_-3px_rgba(26,28,36,0.08),0_4px_6px_-2px_rgba(26,28,36,0.04)] md:p-6">
-              <Image
-                src="/generated/2.png"
-                alt="Threat inbox demo with original and counterfeit listing comparison"
-                width={1600}
-                height={1000}
-                className="h-auto w-full rounded-md border border-white/15"
-              />
-
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  aria-label="Approve takedown action in demo"
-                  onClick={() => setDemoState("submitted")}
-                  className="inline-flex items-center gap-2 rounded-md bg-[#10D94B] px-5 py-3 text-sm font-semibold text-[#1A1C24] transition-all duration-200 ease-out hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10D94B] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1A1C24]"
-                >
-                  Approve Takedown
-                  <ChevronIcon className="h-3 w-3" />
-                </button>
-                {demoState === "submitted" ? (
-                  <div className="inline-flex items-center gap-2 rounded-md border border-[#10D94B]/40 bg-[#10D94B]/15 px-3 py-2 text-sm text-white">
-                    <CheckCircle2 className="h-4 w-4 text-[#10D94B]" />
-                    Enforcement Action Submitted
+                  <div className="mt-4 overflow-hidden rounded-[1.4rem] border border-white/10 bg-[#211f26]">
+                    <Image
+                      src="/hero-dashboard.webp"
+                      alt="SniperIP dashboard showing enforcement operations"
+                      width={1600}
+                      height={1100}
+                      priority
+                      className="h-auto w-full"
+                    />
                   </div>
-                ) : (
-                  <p className="text-sm text-white/70">
-                    Review evidence, approve enforcement, and keep the workflow auditable.
-                  </p>
-                )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-white/55">Escalation path</p>
+                      <p className="mt-2 text-sm leading-6 text-white/80">
+                        Storefront copy detected on an unauthorized domain with repeat seller fingerprints and price compression.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDispatchState("queued")}
+                      className="rounded-2xl border border-[#10D94B]/35 bg-[#10D94B]/12 p-4 text-left transition hover:border-[#10D94B]/60"
+                    >
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#9ef0ba]">Operator action</p>
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className="text-lg font-semibold">
+                          {dispatchState === "queued" ? "Takedown queued" : "Approve filing"}
+                        </p>
+                        {dispatchState === "queued" ? (
+                          <CheckCircle2 className="h-5 w-5 text-[#9ef0ba]" />
+                        ) : (
+                          <FileCheck2 className="h-5 w-5 text-[#9ef0ba]" />
+                        )}
+                      </div>
+                      <p className="mt-2 text-sm text-white/75">
+                        {dispatchState === "queued"
+                          ? "Evidence packet and notification dispatch are in motion."
+                          : "Create the platform request with a complete evidence packet."}
+                      </p>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="technology" className="bg-[#F8F9FA]">
-          <div className="mx-auto w-full max-w-7xl px-6 py-16">
-            <div className="mb-10 text-center">
-              <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
-                Tech Moat & Legal Security
+        <section id="how-it-works" className="border-b border-[#141315]/10">
+          <div className="mx-auto w-full max-w-7xl px-6 py-20 md:py-24">
+            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#6b675f]">Operator loop</p>
+                <h2 className="mt-4 max-w-xl font-[family-name:var(--font-heading)] text-4xl font-bold tracking-[-0.04em] md:text-5xl">
+                  A measured workflow built to keep enforcement fast and defensible.
+                </h2>
+              </div>
+
+              <div className="grid gap-4">
+                {operatingLoop.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <article
+                      key={item.title}
+                      className="signal-frame rounded-[1.6rem] border border-[#141315]/10 bg-white/80 p-6"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="rounded-2xl border border-[#141315]/10 bg-[#f7f2e8] px-3 py-2 text-sm font-semibold text-[#141315]">
+                          {item.step}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <Icon className="h-5 w-5 text-[#10D94B]" />
+                            <h3 className="text-2xl font-semibold">{item.title}</h3>
+                          </div>
+                          <p className="mt-3 max-w-2xl text-base leading-7 text-[#5c5851]">{item.body}</p>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="technology" className="bg-[#141315] text-white">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-6 py-20 md:py-24 lg:grid-cols-[0.92fr_1.08fr]">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">Proof stack</p>
+              <h2 className="mt-4 font-[family-name:var(--font-heading)] text-4xl font-bold tracking-[-0.04em] md:text-5xl">
+                The moat is not the model. It is the evidence discipline around the model.
               </h2>
+              <p className="mt-5 max-w-xl text-lg leading-8 text-white/72">
+                Better scanning only matters if the downstream case packet, legal contact layer, and operator review path hold together under pressure.
+              </p>
+
+              <div className="mt-8 space-y-3">
+                {signalRows.map((row) => (
+                  <div key={row.label} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/50">{row.label}</p>
+                    <p className="mt-2 text-sm leading-6 text-white/80">{row.value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              {techCards.map((card) => (
+            <div className="grid gap-4 md:grid-cols-2">
+              {proofCards.map((card, index) => (
                 <article
                   key={card.title}
-                  className="rounded-md border border-[#E2E8F0] bg-white p-6 shadow-[0_4px_6px_-1px_rgba(26,28,36,0.08),0_2px_4px_-1px_rgba(26,28,36,0.04)]"
+                  className={`rounded-[1.8rem] border border-white/10 p-6 ${
+                    index === 1 ? "bg-[#10D94B]/10" : "bg-white/6"
+                  }`}
                 >
-                  <h3 className="font-[family-name:var(--font-heading)] text-2xl font-extrabold tracking-tight text-[#1A1C24]">
-                    {card.title}
-                  </h3>
-                  <p className="mt-3 text-base leading-[1.6] text-[#475569]">
-                    {card.body}
-                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">{card.eyebrow}</p>
+                  <h3 className="mt-4 text-2xl font-semibold">{card.title}</h3>
+                  <p className="mt-3 text-base leading-7 text-white/74">{card.body}</p>
                 </article>
               ))}
+
+              <div className="rounded-[1.8rem] border border-[#10D94B]/20 bg-[#0c2614] p-6 md:col-span-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <ShieldAlert className="h-5 w-5 text-[#9ef0ba]" />
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#9ef0ba]">Built for counterfeit response</p>
+                </div>
+                <p className="mt-4 max-w-3xl text-xl leading-8 text-white/85">
+                  SniperIP is opinionated about the real job: move from suspicion to documented enforcement without losing chain-of-custody or flooding your team with noise.
+                </p>
+              </div>
             </div>
           </div>
         </section>
 
-        <section id="free-scan" className="mx-auto w-full max-w-7xl px-6 py-16">
-          <div className="mb-10 text-center">
-            <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
-              Try a Free Brand Scan
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-base text-[#475569]">
-              Upload a product image to instantly detect counterfeits across global marketplaces. No account required.
-            </p>
+        <section id="demo" className="border-b border-[#141315]/10">
+          <div className="mx-auto grid w-full max-w-7xl gap-10 px-6 py-20 md:py-24 lg:grid-cols-[0.78fr_1.22fr]">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#6b675f]">Free scan</p>
+              <h2 className="mt-4 font-[family-name:var(--font-heading)] text-4xl font-bold tracking-[-0.04em] md:text-5xl">
+                Drop in a hero image. See the counterfeit surface around it.
+              </h2>
+              <p className="mt-5 max-w-xl text-lg leading-8 text-[#5c5851]">
+                The free scan is designed as a sharp diagnostic, not a lead-gen gimmick. It shows where your product imagery is being mirrored and how risky the matches look.
+              </p>
+
+              <div className="mt-8 rounded-[1.6rem] border border-[#141315]/10 bg-white/70 p-5">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="h-5 w-5 text-[#10D94B]" />
+                  <p className="text-sm font-semibold text-[#141315]">What comes back</p>
+                </div>
+                <ul className="mt-4 space-y-3 text-sm leading-6 text-[#5c5851]">
+                  <li>Blurred marketplace previews and domain hints so teams can triage safely.</li>
+                  <li>Similarity scoring that ranks where enforcement should begin.</li>
+                  <li>A clean next step into the authenticated threat inbox when you are ready.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="signal-frame rounded-[2rem] border border-[#141315]/10 bg-white/82 p-6">
+              <FreeScan />
+            </div>
           </div>
-          <FreeScan />
         </section>
 
-        <section id="pricing" className="mx-auto w-full max-w-7xl px-6 py-16">
-          <div className="mb-10 text-center">
-            <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight md:text-5xl">
-              Pricing
-            </h2>
-          </div>
-          <PricingGrid />
-        </section>
+        <section className="bg-[#ede6d6]">
+          <div className="mx-auto w-full max-w-7xl px-6 py-20 md:py-24">
+            <div className="mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#6b675f]">Plans</p>
+                <h2 className="mt-4 font-[family-name:var(--font-heading)] text-4xl font-bold tracking-[-0.04em] md:text-5xl">
+                  Choose the operating mode that matches your enforcement volume.
+                </h2>
+              </div>
+              <Link href="/auth/login" className="inline-flex items-center gap-2 text-sm font-semibold text-[#141315]">
+                Launch workspace
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </div>
 
-        <section className="bg-[#1A1C24]">
-          <div className="mx-auto w-full max-w-7xl px-6 py-16 text-center">
-            <h2 className="font-[family-name:var(--font-heading)] text-4xl font-extrabold leading-snug tracking-tight text-white md:text-5xl">
-              Ready to reclaim your revenue?
-            </h2>
-            <p className="mx-auto mt-4 max-w-3xl text-base text-[#94A3B8] md:text-lg">
-              Move from manual legal operations to an automated enforcement
-              workflow designed for scale, speed, and auditability.
-            </p>
-            <Link
-              href="/auth/login"
-              aria-label="Protect my brand now"
-              className="mt-7 inline-flex items-center gap-2 rounded-md bg-[#10D94B] px-6 py-3 text-sm font-semibold text-[#1A1C24] shadow-[0_4px_6px_-1px_rgba(26,28,36,0.08),0_2px_4px_-1px_rgba(26,28,36,0.04)] transition-all duration-200 ease-out hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#10D94B] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1A1C24]"
-            >
-              Protect My Brand Now
-              <ChevronIcon className="h-3 w-3" />
-            </Link>
+            <PricingGrid />
           </div>
         </section>
       </main>

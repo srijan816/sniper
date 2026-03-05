@@ -1,68 +1,26 @@
-export type ThreatStatus =
-  | "DISCOVERED"
-  | "PENDING_APPROVAL"
-  | "APPROVED"
-  | "WHITELISTED"
-  | "REJECTED"
-  | "TAKEDOWN_SUBMITTED"
-  | "TAKEDOWN_CONFIRMED"
-  | "REMOVED";
-
-export type Threat = {
-  id: string;
-  asset_id: string;
-  client_id: string;
-  infringing_url: string;
-  infringing_image_url?: string | null;
-  host_domain: string;
-  similarity_score: number;
-  status: ThreatStatus;
-  discovered_at: string;
-  ai_explanation?: string | null;
-  resolved_at?: string | null;
-};
-
-export type Asset = {
-  id: string;
-  client_id: string;
-  asset_type: "IMAGE" | "VIDEO";
-  original_filename: string;
-  storage_url: string;
-  thumbnail_url?: string | null;
-  status: string;
-  created_at: string;
-};
-
-export type Takedown = {
-  id: string;
-  threat_id: string;
-  platform: string;
-  case_number?: string | null;
-  status: "PENDING" | "SUBMITTED" | "CONFIRMED" | "FAILED";
-  retry_count: number;
-  submitted_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-};
-
-export type Client = {
-  id: string;
-  company_name: string;
-  subscription_tier: "FREE" | "STARTER" | "GROWTH" | "AGENCY";
-  monthly_threat_limit: number;
-  current_month_count: number;
-};
-
-export type AuditLog = {
-  id: string;
-  threat_id: string;
-  old_status?: string | null;
-  new_status: string;
-  changed_by: string;
-  changed_at: string;
-};
-
 import { createBrowserSupabaseClient } from "./supabase/client";
+import type {
+  Asset,
+  AuditLog,
+  AuthorizedSeller,
+  Client,
+  ClientAnalytics,
+  NotificationSettings,
+  Takedown,
+  Threat,
+} from "./contracts";
+
+export type {
+  Asset,
+  AuditLog,
+  AuthorizedSeller,
+  Client,
+  ClientAnalytics,
+  NotificationSettings,
+  Takedown,
+  Threat,
+  ThreatStatus,
+} from "./contracts";
 
 const rawBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 const normalizedBackendUrl = rawBackendUrl.replace(/\/$/, "");
@@ -210,34 +168,9 @@ export async function dismissDlqEntry(dlqId: string) {
 }
 
 export async function getClientAnalytics() {
-  // Path param is ignored by backend; client_id comes from JWT via Depends()
   const response = await authenticatedFetch("/clients/me/analytics", { cache: "no-store" });
-  return parseJson<{
-    threats_found_this_month: number;
-    threats_removed_this_month: number;
-    estimated_revenue_protected: number;
-    average_order_value: number;
-    threats_discovered_total: number;
-    takedowns_completed_total: number;
-    takedowns_completed_this_month: number;
-    average_time_to_takedown_hours: number | null;
-    bad_actors_identified: number;
-    platforms_breakdown: Record<string, number>;
-    monthly_trend: Array<{ month: string; threats: number; takedowns: number }>;
-  }>(response);
+  return parseJson<ClientAnalytics>(response);
 }
-
-export type AuthorizedSeller = {
-  id: string;
-  client_id: string;
-  domain: string;
-  seller_name?: string | null;
-  platform?: string | null;
-  platform_seller_id?: string | null;
-  relationship: string;
-  added_by: string;
-  created_at: string;
-};
 
 export async function listAuthorizedSellers(clientId: string) {
   const response = await authenticatedFetch(`/clients/${clientId}/authorized-sellers`, { cache: "no-store" });
@@ -264,29 +197,24 @@ export async function removeAuthorizedSeller(clientId: string, sellerId: string)
 }
 
 export async function getNotificationSettings(clientId: string) {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, { cache: "no-store" });
-  return parseJson<{
-    slack_webhook_url: string | null;
-    webhook_url: string | null;
-    webhook_secret: string | null;
-    notification_prefs: Record<string, unknown>;
-  }>(response);
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications`, { cache: "no-store" });
+  return parseJson<NotificationSettings>(response);
 }
 
 export async function updateNotificationSettings(
   clientId: string,
   payload: { slack_webhook_url?: string | null; webhook_url?: string | null; notification_prefs?: Record<string, unknown> }
 ) {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, {
-    method: "PATCH",
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  return parseJson<{ status: string }>(response);
+  return parseJson<NotificationSettings>(response);
 }
 
 export async function testNotification(clientId: string, channel: "email" | "slack" | "webhook") {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings/test`, {
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ channel }),

@@ -133,6 +133,32 @@
     background-size: 24px 24px;
   }
 
+  .tactical-grid {
+    background-image:
+      linear-gradient(rgba(20, 19, 21, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(20, 19, 21, 0.08) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  .signal-frame {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.7) inset,
+      0 24px 60px rgba(20, 19, 21, 0.12);
+  }
+
+  .marketing-float {
+    animation: marketing-float 7s ease-in-out infinite;
+  }
+
+  .marketing-sweep::after {
+    content: "";
+    position: absolute;
+    inset: -140% -20%;
+    background: linear-gradient(180deg, transparent 0%, rgba(16, 217, 75, 0.15) 48%, transparent 52%);
+    animation: marketing-sweep 7.5s linear infinite;
+    pointer-events: none;
+  }
+
   .sniper-focus-ring {
     box-shadow: 0 0 0 3px rgba(16, 217, 75, 0.25);
   }
@@ -148,5 +174,26 @@
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes marketing-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes marketing-sweep {
+  0% {
+    transform: translateY(-10%) rotate(2deg);
+  }
+
+  100% {
+    transform: translateY(70%) rotate(2deg);
   }
 }

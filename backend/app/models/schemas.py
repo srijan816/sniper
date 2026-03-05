@@ -64,6 +64,7 @@ class ClientResponse(ClientBase):
     current_month_count: int = 0
     loa_signed_at: Optional[datetime] = None
     whitelist_domains: List[str] = []
+    automation_rules: Optional[dict] = None
     created_at: datetime
 
     class Config:
@@ -106,6 +107,8 @@ class ThreatCreate(BaseModel):
     seller_name: Optional[str] = None
     listing_title: Optional[str] = None
     listing_price: Optional[float] = Field(default=None, ge=0)
+    estimated_stock: Optional[int] = Field(default=None, ge=0)
+    financial_impact: Optional[float] = Field(default=None, ge=0)
     similarity_score: float = Field(ge=0.0, le=1.0)
     ai_explanation: Optional[str] = None
 
@@ -120,6 +123,8 @@ class ThreatResponse(BaseModel):
     seller_name: Optional[str] = None
     listing_title: Optional[str] = None
     listing_price: Optional[float] = None
+    estimated_stock: Optional[int] = None
+    financial_impact: Optional[float] = None
     similarity_score: float
     ai_explanation: Optional[str] = None
     status: ThreatStatus

@@ -7,12 +7,10 @@ import tempfile
 import time
 from typing import Iterable, List
 
-import base64
 import ffmpeg
 import httpx
 import imagehash
 from PIL import Image
-
 from app.core.config import get_settings
 
 _LOCAL_MODEL = None
@@ -156,53 +154,34 @@ def _get_local_siglip():
     return _LOCAL_MODEL, _LOCAL_PROCESSOR
 
 
-def _embedding_from_openai(image_bytes: bytes) -> List[float]:
-    import openai
-    settings = get_settings()
-    if not settings.openai_api_key:
-        raise RuntimeError("OPENAI_API_KEY is required for OpenAI vision embeddings.")
-    
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-    prompt = "Describe this e-commerce product in extreme detail, focusing on brand, model, color, shape, materials, and defining features. The goal is to uniquely identify this exact product among counterfeits."
-    
-    client = openai.OpenAI(api_key=settings.openai_api_key)
-    
-    # 1. Vision - semantic extraction
-    vision_resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
-                ]
-            }
-        ],
-        max_tokens=300
-    )
-    description = vision_resp.choices[0].message.content
-    if not description:
-        raise RuntimeError("OpenAI Vision failed to return a valid description.")
-        
-    # 2. Embedding - dimensional encoding (1536d)
-    embed_resp = client.embeddings.create(
-        input=description,
-        model="text-embedding-3-small"
-    )
-    vector = embed_resp.data[0].embedding
-    return _normalize_embedding(vector)
-
-
 def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
     """
-    Generate OpenAI text-embedding-3-small embedding using gpt-4o-mini vision descriptions.
+    Generate dense visual embeddings using Meta's DINOv2 or OpenAI CLIP via Hugging Face.
+    These models extract geometric and texture data directly from pixels, avoiding lossy NLP boundaries.
     """
+    settings = get_settings()
+    backend = settings.huggingface_embedding_backend
+
     try:
-        # We enforce OpenAI end-to-end to generate the 1536-D embedding
-        return _embedding_from_openai(image_bytes)
+        if backend == "endpoint" and settings.huggingface_inference_endpoint_url:
+            return _embedding_from_dedicated_endpoint(image_bytes)
+        
+        if backend == "shared" or (backend == "auto" and settings.huggingface_allow_shared_fallback):
+            return _embedding_from_shared_inference(image_bytes)
+
+        if backend == "local":
+            model, processor = _get_local_siglip()
+            image = Image.open(BytesIO(image_bytes)).convert("RGB")
+            inputs = processor(images=image, return_tensors="pt")
+            outputs = model(**inputs)
+            pooled = outputs.pooler_output[0].detach().numpy().tolist()
+            return _normalize_embedding(pooled)
+
+        # Fallback to shared HuggingFace API if 'auto' and no endpoint provided
+        return _embedding_from_shared_inference(image_bytes)
+
     except Exception as exc:
-        raise RuntimeError(f"Embedding generation failed. Error: {exc}")
+        raise RuntimeError(f"Visual Embedding generation failed using backend '{backend}'. Error: {exc}")
 
 
 def embedding_from_image_url(image_url: str) -> List[float]:

@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { JetBrains_Mono, Manrope, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const headingFont = Plus_Jakarta_Sans({
+const headingFont = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-heading",
-  weight: ["500", "600", "700", "800"],
+  weight: ["500", "600", "700"],
 });
 
-const bodyFont = Inter({
+const bodyFont = Manrope({
   subsets: ["latin"],
   variable: "--font-body",
   weight: ["400", "500", "600"],
