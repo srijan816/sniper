@@ -263,8 +263,18 @@ export async function removeAuthorizedSeller(clientId: string, sellerId: string)
   return parseJson<{ status: string }>(response);
 }
 
+export async function getAdminCosts() {
+  const response = await authenticatedFetch("/admin/costs", { cache: "no-store" });
+  return parseJson<{
+    serpapi_credits_used: number;
+    serpapi_credits_limit: number;
+    hf_compute_hours: number;
+    zenrows_bandwidth_mb: number;
+  }>(response);
+}
+
 export async function getNotificationSettings(clientId: string) {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, { cache: "no-store" });
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications`, { cache: "no-store" });
   return parseJson<{
     slack_webhook_url: string | null;
     webhook_url: string | null;
@@ -277,8 +287,8 @@ export async function updateNotificationSettings(
   clientId: string,
   payload: { slack_webhook_url?: string | null; webhook_url?: string | null; notification_prefs?: Record<string, unknown> }
 ) {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings`, {
-    method: "PATCH",
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -286,10 +296,8 @@ export async function updateNotificationSettings(
 }
 
 export async function testNotification(clientId: string, channel: "email" | "slack" | "webhook") {
-  const response = await authenticatedFetch(`/clients/${clientId}/notification-settings/test`, {
+  const response = await authenticatedFetch(`/clients/${clientId}/notifications/test`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ channel }),
   });
   return parseJson<{ status: string; message: string }>(response);
 }

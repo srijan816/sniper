@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.workers.takedown",
         "app.workers.notifications",
         "app.workers.monitoring",
+        "app.workers.research",
     ],
 )
 
@@ -37,6 +38,7 @@ celery_app.conf.update(
         "app.workers.notifications.send_threat_digest": {"queue": "notifications"},
         "app.workers.notifications.send_slack_alert": {"queue": "notifications"},
         "app.workers.notifications.send_takedown_confirmation": {"queue": "notifications"},
+        "app.workers.research.run_brand_research": {"queue": "default"},
     },
     # Retry policy
     task_default_retry_delay=60,

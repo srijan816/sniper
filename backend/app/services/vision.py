@@ -1,11 +1,12 @@
-"""Vision utilities: SigLIP embedding, pHash, similarity, and frame extraction."""
+"""Vision utilities: SigLIP 2 + DINOv2 ensemble, pHash, similarity."""
 from __future__ import annotations
 
 from io import BytesIO
 import math
 import tempfile
 import time
-from typing import Iterable, List
+from dataclasses import dataclass
+from typing import Iterable, List, Optional
 
 import base64
 import ffmpeg
@@ -15,8 +16,19 @@ from PIL import Image
 
 from app.core.config import get_settings
 
-_LOCAL_MODEL = None
-_LOCAL_PROCESSOR = None
+_LOCAL_SIGLIP_MODEL = None
+_LOCAL_SIGLIP_PROCESSOR = None
+_LOCAL_DINOV2_MODEL = None
+_LOCAL_DINOV2_PROCESSOR = None
+
+
+@dataclass
+class SimilarityBreakdown:
+    combined: float
+    siglip: float
+    dinov2: float
+    phash: float
+    phash_distance: int
 
 
 def download_bytes(url: str, timeout: float = 30.0) -> bytes:
@@ -38,8 +50,12 @@ def phash_hamming_distance(phash_a: str, phash_b: str) -> int:
         raise RuntimeError(f"Invalid pHash values for distance calculation: {exc}") from exc
 
 
+def phash_similarity(phash_a: str, phash_b: str) -> tuple[float, int]:
+    distance = phash_hamming_distance(phash_a, phash_b)
+    return max(0.0, 1.0 - (distance / 64.0)), distance
+
+
 def extract_video_frame_bytes(video_url: str, timestamp_seconds: float = 3.0) -> bytes:
-    """Extract frame bytes from a remote/local video URL using ffmpeg."""
     with tempfile.NamedTemporaryFile(suffix=".jpg") as output:
         (
             ffmpeg.input(video_url, ss=timestamp_seconds)
@@ -66,7 +82,6 @@ def _pool_features(features):
         raise RuntimeError("Empty embedding vector returned by Hugging Face API.")
     if isinstance(features[0], (int, float)):
         return [float(v) for v in features]
-    # Token-level features: average pool.
     first_row = features[0]
     if not isinstance(first_row, list):
         raise RuntimeError("Unexpected Hugging Face embedding shape.")
@@ -107,67 +122,96 @@ def _post_with_retry(url: str, headers: dict, payload: bytes) -> list:
     raise RuntimeError(f"Embedding API request failed after {retries} attempts: {last_error}")
 
 
-def _embedding_from_shared_inference(image_bytes: bytes) -> List[float]:
+def _hf_feature_extraction(model_id: str, image_bytes: bytes) -> List[float]:
     settings = get_settings()
+    if settings.huggingface_inference_endpoint_url and model_id == settings.huggingface_embedding_model:
+        token = settings.huggingface_inference_endpoint_token or settings.huggingface_api_token
+        headers = {"Content-Type": "application/octet-stream"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        payload = _post_with_retry(settings.huggingface_inference_endpoint_url, headers, image_bytes)
+        return _normalize_embedding(_pool_features(payload))
+
     if not settings.huggingface_api_token:
-        raise RuntimeError("HUGGINGFACE_API_TOKEN is required for shared Hugging Face inference.")
-    endpoint = (
-        f"https://api-inference.huggingface.co/pipeline/feature-extraction/"
-        f"{settings.huggingface_embedding_model}"
-    )
+        raise RuntimeError("HUGGINGFACE_API_TOKEN is required for Hugging Face inference.")
+    endpoint = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_id}"
     headers = {
         "Authorization": f"Bearer {settings.huggingface_api_token}",
         "Content-Type": "application/octet-stream",
     }
     payload = _post_with_retry(endpoint, headers, image_bytes)
-    pooled = _pool_features(payload)
-    return _normalize_embedding(pooled)
-
-
-def _embedding_from_dedicated_endpoint(image_bytes: bytes) -> List[float]:
-    settings = get_settings()
-    if not settings.huggingface_inference_endpoint_url:
-        raise RuntimeError("HUGGINGFACE_INFERENCE_ENDPOINT_URL is required for endpoint embedding backend.")
-
-    token = settings.huggingface_inference_endpoint_token or settings.huggingface_api_token
-    headers = {"Content-Type": "application/octet-stream"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    payload = _post_with_retry(settings.huggingface_inference_endpoint_url, headers, image_bytes)
-    pooled = _pool_features(payload)
-    return _normalize_embedding(pooled)
+    return _normalize_embedding(_pool_features(payload))
 
 
 def _get_local_siglip():
-    global _LOCAL_MODEL, _LOCAL_PROCESSOR
-    if _LOCAL_MODEL is not None and _LOCAL_PROCESSOR is not None:
-        return _LOCAL_MODEL, _LOCAL_PROCESSOR
-
-    try:
-        from transformers import AutoModel, AutoProcessor
-    except Exception as exc:
-        raise RuntimeError("Local embedding backend requires `transformers`.") from exc
+    global _LOCAL_SIGLIP_MODEL, _LOCAL_SIGLIP_PROCESSOR
+    if _LOCAL_SIGLIP_MODEL is not None and _LOCAL_SIGLIP_PROCESSOR is not None:
+        return _LOCAL_SIGLIP_MODEL, _LOCAL_SIGLIP_PROCESSOR
+    from transformers import AutoModel, AutoProcessor
 
     model_name = get_settings().huggingface_embedding_model
-    _LOCAL_PROCESSOR = AutoProcessor.from_pretrained(model_name)
-    _LOCAL_MODEL = AutoModel.from_pretrained(model_name)
-    _LOCAL_MODEL.eval()
-    return _LOCAL_MODEL, _LOCAL_PROCESSOR
+    _LOCAL_SIGLIP_PROCESSOR = AutoProcessor.from_pretrained(model_name)
+    _LOCAL_SIGLIP_MODEL = AutoModel.from_pretrained(model_name)
+    _LOCAL_SIGLIP_MODEL.eval()
+    return _LOCAL_SIGLIP_MODEL, _LOCAL_SIGLIP_PROCESSOR
+
+
+def _get_local_dinov2():
+    global _LOCAL_DINOV2_MODEL, _LOCAL_DINOV2_PROCESSOR
+    if _LOCAL_DINOV2_MODEL is not None and _LOCAL_DINOV2_PROCESSOR is not None:
+        return _LOCAL_DINOV2_MODEL, _LOCAL_DINOV2_PROCESSOR
+    from transformers import AutoImageProcessor, AutoModel
+
+    model_name = get_settings().dinov2_model
+    _LOCAL_DINOV2_PROCESSOR = AutoImageProcessor.from_pretrained(model_name)
+    _LOCAL_DINOV2_MODEL = AutoModel.from_pretrained(model_name)
+    _LOCAL_DINOV2_MODEL.eval()
+    return _LOCAL_DINOV2_MODEL, _LOCAL_DINOV2_PROCESSOR
+
+
+def _embedding_siglip_local(image_bytes: bytes) -> List[float]:
+    import torch
+
+    model, processor = _get_local_siglip()
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model.get_image_features(**inputs)
+        if hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
+            vector = outputs.pooler_output[0].tolist()
+        elif hasattr(outputs, "last_hidden_state"):
+            vector = outputs.last_hidden_state.mean(dim=1)[0].tolist()
+        else:
+            vector = outputs[0].mean(dim=0).tolist()
+    return _normalize_embedding(vector)
+
+
+def _embedding_dinov2_local(image_bytes: bytes) -> List[float]:
+    import torch
+
+    model, processor = _get_local_dinov2()
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+        vector = outputs.last_hidden_state[:, 0, :][0].tolist()
+    return _normalize_embedding(vector)
 
 
 def _embedding_from_openai(image_bytes: bytes) -> List[float]:
     import openai
+
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required for OpenAI vision embeddings.")
-    
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-    prompt = "Describe this e-commerce product in extreme detail, focusing on brand, model, color, shape, materials, and defining features. The goal is to uniquely identify this exact product among counterfeits."
-    
+
+    encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+    prompt = (
+        "Describe this e-commerce product in extreme detail, focusing on brand, model, color, "
+        "shape, materials, and defining features. The goal is to uniquely identify this exact "
+        "product among counterfeits."
+    )
     client = openai.OpenAI(api_key=settings.openai_api_key)
-    
-    # 1. Vision - semantic extraction
     vision_resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -175,34 +219,69 @@ def _embedding_from_openai(image_bytes: bytes) -> List[float]:
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
-                ]
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}},
+                ],
             }
         ],
-        max_tokens=300
+        max_tokens=300,
     )
     description = vision_resp.choices[0].message.content
     if not description:
         raise RuntimeError("OpenAI Vision failed to return a valid description.")
-        
-    # 2. Embedding - dimensional encoding (1536d)
-    embed_resp = client.embeddings.create(
-        input=description,
-        model="text-embedding-3-small"
-    )
-    vector = embed_resp.data[0].embedding
-    return _normalize_embedding(vector)
+    embed_resp = client.embeddings.create(input=description, model="text-embedding-3-small")
+    return _normalize_embedding(embed_resp.data[0].embedding)
+
+
+def siglip_embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
+    settings = get_settings()
+    backend = (settings.huggingface_embedding_backend or "auto").lower()
+    model_id = settings.huggingface_embedding_model
+
+    if backend == "openai":
+        return _embedding_from_openai(image_bytes)
+
+    errors: list[str] = []
+    if backend in {"endpoint", "auto"} and settings.huggingface_inference_endpoint_url:
+        try:
+            return _hf_feature_extraction(model_id, image_bytes)
+        except Exception as exc:
+            errors.append(f"endpoint: {exc}")
+
+    if backend in {"shared", "auto"} and settings.huggingface_api_token:
+        try:
+            return _hf_feature_extraction(model_id, image_bytes)
+        except Exception as exc:
+            errors.append(f"shared: {exc}")
+
+    if backend in {"local", "auto"}:
+        try:
+            return _embedding_siglip_local(image_bytes)
+        except Exception as exc:
+            errors.append(f"local: {exc}")
+
+    if settings.openai_api_key and settings.huggingface_allow_openai_fallback:
+        return _embedding_from_openai(image_bytes)
+
+    raise RuntimeError(f"SigLIP embedding failed ({'; '.join(errors) or 'no backend configured'})")
+
+
+def dinov2_embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
+    settings = get_settings()
+    if not settings.dinov2_enabled:
+        raise RuntimeError("DINOv2 is disabled.")
+    backend = (settings.dinov2_backend or "shared").lower()
+    model_id = settings.dinov2_model
+
+    if backend == "shared" and settings.huggingface_api_token:
+        return _hf_feature_extraction(model_id, image_bytes)
+    if backend == "local":
+        return _embedding_dinov2_local(image_bytes)
+    raise RuntimeError("DINOv2 backend not configured.")
 
 
 def embedding_from_image_bytes(image_bytes: bytes) -> List[float]:
-    """
-    Generate OpenAI text-embedding-3-small embedding using gpt-4o-mini vision descriptions.
-    """
-    try:
-        # We enforce OpenAI end-to-end to generate the 1536-D embedding
-        return _embedding_from_openai(image_bytes)
-    except Exception as exc:
-        raise RuntimeError(f"Embedding generation failed. Error: {exc}")
+    """Primary stored embedding (SigLIP 2 family)."""
+    return siglip_embedding_from_image_bytes(image_bytes)
 
 
 def embedding_from_image_url(image_url: str) -> List[float]:
@@ -213,3 +292,54 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     if len(a) != len(b):
         raise ValueError("Embedding dimensions do not match for cosine similarity.")
     return sum(x * y for x, y in zip(a, b))
+
+
+def expected_embedding_dimension() -> int:
+    return int(get_settings().embedding_dimension or 768)
+
+
+def combined_similarity(
+    asset_bytes: bytes,
+    candidate_bytes: bytes,
+    *,
+    asset_phash: str | None = None,
+    asset_siglip: List[float] | None = None,
+) -> SimilarityBreakdown:
+    """
+    Ensemble score: SigLIP 2 (semantic) + DINOv2 (structural) + pHash (perceptual).
+    Weights tuned for counterfeit listing detection.
+    """
+    settings = get_settings()
+
+    candidate_phash = compute_phash(candidate_bytes)
+    if asset_phash:
+        phash_sim, phash_dist = phash_similarity(asset_phash, candidate_phash)
+    else:
+        asset_phash_val = compute_phash(asset_bytes)
+        phash_sim, phash_dist = phash_similarity(asset_phash_val, candidate_phash)
+
+    siglip_a = asset_siglip or siglip_embedding_from_image_bytes(asset_bytes)
+    siglip_b = siglip_embedding_from_image_bytes(candidate_bytes)
+    siglip_sim = cosine_similarity(siglip_a, siglip_b)
+
+    dinov2_sim = siglip_sim
+    if settings.dinov2_enabled:
+        try:
+            dinov2_a = dinov2_embedding_from_image_bytes(asset_bytes)
+            dinov2_b = dinov2_embedding_from_image_bytes(candidate_bytes)
+            dinov2_sim = cosine_similarity(dinov2_a, dinov2_b)
+        except Exception:
+            dinov2_sim = siglip_sim
+
+    combined = (
+        float(settings.similarity_weight_siglip) * siglip_sim
+        + float(settings.similarity_weight_dinov2) * dinov2_sim
+        + float(settings.similarity_weight_phash) * phash_sim
+    )
+    return SimilarityBreakdown(
+        combined=combined,
+        siglip=siglip_sim,
+        dinov2=dinov2_sim,
+        phash=phash_sim,
+        phash_distance=phash_dist,
+    )

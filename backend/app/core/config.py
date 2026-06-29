@@ -44,18 +44,42 @@ class Settings(BaseSettings):
     # HuggingFace
     huggingface_api_token: str = ""
 
-    # OpenAI
+    # OpenAI (fallback embedding backend)
     openai_api_key: str = ""
-    huggingface_embedding_model: str = "google/siglip-base-patch16-224"
-    huggingface_embedding_backend: str = "endpoint"  # local | endpoint | shared | auto
+    huggingface_embedding_model: str = "google/siglip2-base-patch16-224"
+    huggingface_embedding_backend: str = "auto"  # local | endpoint | shared | auto | openai
     huggingface_inference_endpoint_url: str = ""
     huggingface_inference_endpoint_token: str = ""
     huggingface_allow_shared_fallback: bool = True
+    huggingface_allow_openai_fallback: bool = False
     embedding_request_retries: int = 3
+    embedding_dimension: int = 768
+
+    # DINOv2 structural similarity (ensemble verification)
+    dinov2_enabled: bool = True
+    dinov2_model: str = "facebook/dinov2-base"
+    dinov2_backend: str = "shared"  # shared | local
+
+    # MiniMax M3 (threat explanations, intelligence)
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-M3"
+
+    # AI-Q deep research (pipeline intelligence)
+    aiq_base_url: str = "https://app2.sniperip.com"
+    aiq_api_token: str = ""
+
+    # Verification ensemble weights (must sum to ~1.0)
+    similarity_weight_siglip: float = 0.45
+    similarity_weight_dinov2: float = 0.35
+    similarity_weight_phash: float = 0.20
 
     # Verification
-    similarity_threshold: float = 0.95
+    similarity_threshold: float = 0.92
     phash_distance_threshold: int = 6
+
+    # Discovery sources
+    discovery_enable_shopping_search: bool = True
+    discovery_enable_bing_reverse: bool = True
 
     # Automation
     two_captcha_api_key: str = ""
