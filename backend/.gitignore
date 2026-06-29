@@ -1,0 +1,2 @@
+# Research queue state (file fallback when Redis unavailable)
+.research-queue-state.json

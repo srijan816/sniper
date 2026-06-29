@@ -39,6 +39,8 @@ celery_app.conf.update(
         "app.workers.notifications.send_slack_alert": {"queue": "notifications"},
         "app.workers.notifications.send_takedown_confirmation": {"queue": "notifications"},
         "app.workers.research.run_brand_research": {"queue": "default"},
+        "app.workers.research.research_queue_tick": {"queue": "default"},
+        "app.workers.research.seed_research_queue": {"queue": "default"},
     },
     # Retry policy
     task_default_retry_delay=60,
@@ -52,6 +54,10 @@ celery_app.conf.update(
         "check-takedown-persistence": {
             "task": "app.workers.monitoring.check_takedown_persistence",
             "schedule": 86400.0,  # daily — poll completed takedowns for reinstatement
+        },
+        "research-queue-tick": {
+            "task": "app.workers.research.research_queue_tick",
+            "schedule": float(settings.research_poll_interval_seconds or 120),
         },
     },
 )

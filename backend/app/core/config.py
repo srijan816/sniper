@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     # AI-Q deep research (pipeline intelligence)
     aiq_base_url: str = "https://app2.sniperip.com"
     aiq_api_token: str = ""
+    research_poll_interval_seconds: int = 120
 
     # Verification ensemble weights (must sum to ~1.0)
     similarity_weight_siglip: float = 0.45

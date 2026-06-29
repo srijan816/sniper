@@ -166,3 +166,42 @@ async def dismiss_dlq_entry(dlq_id: str, _admin: str = Depends(get_admin_user)):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to dismiss DLQ entry: {exc}") from exc
+
+
+@router.get("/research")
+async def get_research_queue_status(_admin: str = Depends(get_admin_user)):
+    """Pipeline research queue status (AI-Q sequential jobs)."""
+    from app.services.research_queue import queue_status
+
+    return queue_status()
+
+
+@router.post("/research/seed")
+async def seed_pipeline_research(_admin: str = Depends(get_admin_user)):
+    """Seed default pipeline research topics (skips completed)."""
+    from app.workers.research import seed_research_queue
+
+    result = seed_research_queue.delay()
+    return {"status": "queued", "task_id": result.id}
+
+
+@router.post("/research/tick")
+async def trigger_research_tick(_admin: str = Depends(get_admin_user)):
+    """Manually run one research poll/apply tick."""
+    from app.workers.research import research_queue_tick
+
+    result = research_queue_tick.delay()
+    return {"status": "queued", "task_id": result.id}
+
+
+@router.post("/research/adopt")
+async def adopt_research_job(body: dict, _admin: str = Depends(get_admin_user)):
+    """Adopt an externally submitted AI-Q job into the pipeline tracker."""
+    topic_key = body.get("topic_key")
+    job_id = body.get("job_id")
+    if not topic_key or not job_id:
+        raise HTTPException(status_code=400, detail="topic_key and job_id required")
+    from app.workers.research import adopt_research_job
+
+    task = adopt_research_job.delay(topic_key, job_id)
+    return {"status": "adopted", "task_id": task.id, "topic_key": topic_key, "job_id": job_id}
