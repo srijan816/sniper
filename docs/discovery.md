@@ -22,14 +22,17 @@ need to do visual matching itself.
 
 All candidates are then verified by the ensemble, so a low-precision feed is fine.
 
-## Public counterfeits wall
+## Counterfeits wall (admin-only)
 
-`GET /api/counterfeits` (`app/api/counterfeits.py`, public, no auth) returns only
-**human-reviewed** threats (status in APPROVED / CONFIRMED / TAKEDOWN_* / REMOVED)
-— never raw automated discoveries — each pairing the original asset image with the
-infringing listing image + similarity. The Next.js page `/counterfeits`
-(`src/app/counterfeits/page.tsx`) renders them with a "suspected, automated,
-unverified" disclaimer. Empty until real reviewed matches exist.
+`GET /api/counterfeits` (`app/api/counterfeits.py`) requires an **admin** bearer
+token and returns only **human-reviewed** threats (status in APPROVED / CONFIRMED
+/ TAKEDOWN_* / REMOVED) — never raw automated discoveries — each pairing the
+original asset image with the infringing listing image + similarity. The page
+lives at `/admin/counterfeits` (`src/app/admin/counterfeits/page.tsx`, behind the
+auth middleware) and fetches with the signed-in admin's token, showing a
+"suspected, automated, unverified" disclaimer. Empty until real reviewed matches
+exist. It is intentionally **not public** — it exposes cross-client asset images
+and enforcement actions.
 
 ## SearXNG reuse
 

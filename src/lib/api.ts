@@ -100,6 +100,24 @@ export function normalizeThreatStatus(status: string): string {
   return status;
 }
 
+export type Counterfeit = {
+  id: string;
+  original_image: string | null;
+  infringing_image: string | null;
+  listing_url: string | null;
+  marketplace: string | null;
+  seller: string | null;
+  title: string | null;
+  similarity: number | null;
+  status: string | null;
+  detected_at: string | null;
+};
+
+export async function getCounterfeits(limit = 60) {
+  const response = await authenticatedFetch(`/counterfeits?limit=${limit}`, { cache: "no-store" });
+  return parseJson<{ success: boolean; data: Counterfeit[]; meta: { disclaimer?: string } }>(response);
+}
+
 export async function listThreats() {
   const response = await authenticatedFetch("/threats", { cache: "no-store" });
   return parseJson<Threat[]>(response);

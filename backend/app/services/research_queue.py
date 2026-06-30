@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +19,16 @@ REDIS_ACTIVE = "sniperip:research:active"
 REDIS_QUEUE = "sniperip:research:queue"
 REDIS_REPORT_PREFIX = "sniperip:research:report:"
 
-FILE_STATE = Path(__file__).resolve().parents[2] / ".research-queue-state.json"
+# State file for the Redis fallback. Configurable (RESEARCH_QUEUE_STATE_PATH) and
+# written 0600 — it can contain AI-Q job ids / tokens, so keep it off predictable
+# world-readable paths in shared environments.
+FILE_STATE = Path(
+    get_settings().research_queue_state_path
+    or (Path(__file__).resolve().parents[2] / ".research-queue-state.json")
+)
+
+# Re-probe Redis this often instead of latching to the file backend forever.
+_REDIS_RECHECK_SECONDS = 30.0
 
 
 class _FileBackend:
@@ -35,6 +46,10 @@ class _FileBackend:
     def _save(self):
         FILE_STATE.parent.mkdir(parents=True, exist_ok=True)
         FILE_STATE.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        try:
+            os.chmod(FILE_STATE, 0o600)
+        except OSError:
+            pass
 
     def get_active(self) -> Optional[dict]:
         return self._data.get("active")
@@ -73,6 +88,7 @@ class _FileBackend:
 
 _file_backend: _FileBackend | None = None
 _use_file = False
+_last_redis_check = 0.0
 
 
 def _get_file_backend() -> _FileBackend:
@@ -90,15 +106,24 @@ def _redis():
 
 
 def _using_file() -> bool:
-    global _use_file
-    if _use_file:
+    """True when the file backend is in use. Latches to file on Redis failure but
+    re-probes Redis every _REDIS_RECHECK_SECONDS so it recovers automatically once
+    Redis is back (avoids permanent split-brain across workers)."""
+    global _use_file, _last_redis_check
+    now = time.monotonic()
+    if _use_file and (now - _last_redis_check) < _REDIS_RECHECK_SECONDS:
         return True
+    _last_redis_check = now
     try:
         _redis().ping()
+        if _use_file:
+            logger.info("Redis recovered — research queue switching back to Redis")
+        _use_file = False
         return False
     except Exception:
+        if not _use_file:
+            logger.warning("Redis unavailable — using file-backed research queue at %s", FILE_STATE)
         _use_file = True
-        logger.info("Redis unavailable — using file-backed research queue at %s", FILE_STATE)
         return True
 
 

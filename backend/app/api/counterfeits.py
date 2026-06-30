@@ -1,16 +1,18 @@
-"""Public counterfeits wall.
+"""Counterfeits wall (admin-only).
 
-Read-only, unauthenticated endpoint that surfaces threats which a human has
-already reviewed (approved or actioned) — never raw automated discoveries — so
-the public page never asserts an unverified accusation. Each item pairs the
-brand's original asset image with the infringing listing image + similarity.
+Read-only endpoint that surfaces threats which a human has already reviewed
+(approved or actioned) — never raw automated discoveries. Requires an admin
+bearer token (it exposes cross-client asset images and enforcement actions, so
+it is not public). Each item pairs the brand's original asset image with the
+infringing listing image + similarity.
 """
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.deps import get_admin_user
 from app.core.database import get_supabase_client
 from app.services.storage_util import to_public_url
 
@@ -23,7 +25,11 @@ PUBLIC_STATUSES = ["APPROVED", "CONFIRMED", "TAKEDOWN_SUBMITTED", "TAKEDOWN_CONF
 
 
 @router.get("")
-def list_counterfeits(limit: int = Query(30, ge=1, le=100), offset: int = Query(0, ge=0)) -> dict:
+def list_counterfeits(
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _admin: str = Depends(get_admin_user),
+) -> dict:
     db = get_supabase_client()
     if db is None:
         return {"success": True, "data": [], "meta": {"total": 0, "note": "database unavailable"}}

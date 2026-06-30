@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     aiq_base_url: str = "https://app2.sniperip.com"
     aiq_api_token: str = ""
     research_poll_interval_seconds: int = 120
+    # Path for the Redis-fallback research queue state (written 0600). Empty =>
+    # default next to the backend package.
+    research_queue_state_path: str = ""
 
     # Verification ensemble weights — research-backed (AI-Q vision-ensemble report)
     similarity_weight_siglip: float = 0.55

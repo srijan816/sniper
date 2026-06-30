@@ -10,13 +10,14 @@ router = APIRouter()
 def _authorize_metrics(request: Request) -> Response | None:
     settings = get_settings()
     token = (settings.metrics_auth_token or "").strip()
-    if token:
-        auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {token}":
-            return Response(status_code=401, content="Unauthorized")
-        return None
-    if settings.environment != "development":
-        return Response(status_code=401, content="METRICS_AUTH_TOKEN required outside development")
+    # No token configured => deny in every environment. This avoids exposing
+    # telemetry when ENVIRONMENT is left at its "development" default. To scrape
+    # locally, set METRICS_AUTH_TOKEN (it is enforced everywhere when present).
+    if not token:
+        return Response(status_code=401, content="METRICS_AUTH_TOKEN not configured")
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {token}":
+        return Response(status_code=401, content="Unauthorized")
     return None
 
 
