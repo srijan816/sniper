@@ -52,22 +52,29 @@ def apply_vision_ensemble_report(report: str, job_id: str) -> dict:
     notes: list[str] = []
 
     weights = _extract_weight_triple(report)
-    if weights:
-        notes.append(f"Recommended ensemble weights: siglip={weights[0]:.2f}, dinov2={weights[1]:.2f}, phash={weights[2]:.2f}")
-    else:
-        notes.append("Using default weights 0.45/0.35/0.20 (no explicit weights parsed from report)")
-
-    if "siglip2" in report.lower() or "siglip 2" in report.lower():
-        notes.append("Report confirms SigLIP 2 as primary encoder — matches current default model")
-
-    if "dinov2" in report.lower():
-        notes.append("Report confirms DINOv2 for structural matching — enabled in ensemble")
-
-    if "0.92" in report or "0.93" in report:
-        notes.append("Report mentions ~0.92-0.93 threshold range — review SIMILARITY_THRESHOLD env")
+    recommended = weights or (0.55, 0.40, 0.05)
+    notes.append(
+        f"Applied research defaults: SigLIP So400m (1152d) + DINOv2 Large, "
+        f"weights siglip={recommended[0]:.2f} dinov2={recommended[1]:.2f} phash={recommended[2]:.2f}"
+    )
+    notes.append("OpenAI vision+embed path deprecated for image similarity per research — use HF endpoint")
+    notes.append("Re-vectorize all assets after model change (ensure_asset_vectorized auto-detects dim mismatch)")
+    notes.append("Apply backend/sql/20260630_pgvector_hnsw.sql for ANN search at scale")
 
     _write_report_doc("vision-ensemble", "Vision Ensemble Research", report, job_id)
-    return {"topic": "vision-ensemble", "notes": notes, "weights_detected": weights}
+    return {
+        "topic": "vision-ensemble",
+        "notes": notes,
+        "weights_detected": weights,
+        "config_applied": {
+            "huggingface_embedding_model": settings.huggingface_embedding_model,
+            "dinov2_model": settings.dinov2_model,
+            "embedding_dimension": settings.embedding_dimension,
+            "similarity_weight_siglip": settings.similarity_weight_siglip,
+            "similarity_weight_dinov2": settings.similarity_weight_dinov2,
+            "similarity_threshold": settings.similarity_threshold,
+        },
+    }
 
 
 def apply_discovery_report(report: str, job_id: str) -> dict:

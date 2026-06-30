@@ -295,7 +295,7 @@ export async function updateNotificationSettings(
   return parseJson<{ status: string }>(response);
 }
 
-export async function testNotification(clientId: string, channel: "email" | "slack" | "webhook") {
+export async function testNotification(clientId: string) {
   const response = await authenticatedFetch(`/clients/${clientId}/notifications/test`, {
     method: "POST",
   });

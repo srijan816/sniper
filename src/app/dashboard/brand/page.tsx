@@ -102,7 +102,7 @@ export default function BrandProfilePage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await testNotification(client.id, channel);
+      const res = await testNotification(client.id);
       setSuccess(res.message || "Test sent.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Test failed");

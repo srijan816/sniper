@@ -58,7 +58,7 @@ export default function BillingPage() {
 
   async function handleUpgrade(tier: string, contactSales?: boolean) {
     if (contactSales) {
-      window.location.href = "mailto:sales@sniperip.com?subject=Agency Plan Inquiry";
+      window.location.assign("mailto:sales@sniperip.com?subject=Agency Plan Inquiry");
       return;
     }
     setUpgrading(tier);
@@ -69,7 +69,7 @@ export default function BillingPage() {
         `${window.location.origin}/dashboard/billing?success=1`,
         `${window.location.origin}/dashboard/billing?canceled=1`,
       );
-      window.location.href = url;
+      window.location.assign(url);
     } catch {
       setError("Failed to start checkout. Please try again.");
       setUpgrading(null);

@@ -33,4 +33,4 @@ def test_phash_similarity_range():
 def test_expected_embedding_dimension_default():
     from app.services.vision import expected_embedding_dimension
 
-    assert expected_embedding_dimension() == 768
+    assert expected_embedding_dimension() == 1152

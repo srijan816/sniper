@@ -46,18 +46,19 @@ class Settings(BaseSettings):
 
     # OpenAI (fallback embedding backend)
     openai_api_key: str = ""
-    huggingface_embedding_model: str = "google/siglip2-base-patch16-224"
+    huggingface_embedding_model: str = "google/siglip-so400m-patch14-384"
     huggingface_embedding_backend: str = "auto"  # local | endpoint | shared | auto | openai
     huggingface_inference_endpoint_url: str = ""
     huggingface_inference_endpoint_token: str = ""
     huggingface_allow_shared_fallback: bool = True
     huggingface_allow_openai_fallback: bool = False
     embedding_request_retries: int = 3
-    embedding_dimension: int = 768
+    embedding_dimension: int = 1152
+    embedding_input_size: int = 384
 
     # DINOv2 structural similarity (ensemble verification)
     dinov2_enabled: bool = True
-    dinov2_model: str = "facebook/dinov2-base"
+    dinov2_model: str = "facebook/dinov2-large"
     dinov2_backend: str = "shared"  # shared | local
 
     # MiniMax M3 (threat explanations, intelligence)
@@ -69,13 +70,13 @@ class Settings(BaseSettings):
     aiq_api_token: str = ""
     research_poll_interval_seconds: int = 120
 
-    # Verification ensemble weights (must sum to ~1.0)
-    similarity_weight_siglip: float = 0.45
-    similarity_weight_dinov2: float = 0.35
-    similarity_weight_phash: float = 0.20
+    # Verification ensemble weights — research-backed (AI-Q vision-ensemble report)
+    similarity_weight_siglip: float = 0.55
+    similarity_weight_dinov2: float = 0.40
+    similarity_weight_phash: float = 0.05
 
     # Verification
-    similarity_threshold: float = 0.92
+    similarity_threshold: float = 0.90
     phash_distance_threshold: int = 6
 
     # Discovery sources

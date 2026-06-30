@@ -86,7 +86,7 @@ function StepBilling() {
     const plan = plans.find((p) => p.tier === selected);
     if (!plan) return;
     if (plan.contactSales) {
-      window.location.href = "mailto:sales@sniperip.com?subject=Agency Plan Inquiry";
+      window.location.assign("mailto:sales@sniperip.com?subject=Agency Plan Inquiry");
       return;
     }
     setRedirecting(true);
@@ -98,7 +98,7 @@ function StepBilling() {
         `${window.location.origin}/onboarding`,
       );
       setBillingComplete(true);
-      window.location.href = url;
+      window.location.assign(url);
     } catch {
       setCheckoutError("Could not start checkout. Please try again.");
       setRedirecting(false);
