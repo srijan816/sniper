@@ -20,7 +20,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Run pytest
-        run: pytest -q
+        run: python -m pytest -q
+      - name: Production readiness check
+        run: python scripts/prod_check.py
+        env:
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: test-key
+          REDIS_URL: redis://localhost:6379/0
 
   frontend-lint:
     runs-on: ubuntu-latest

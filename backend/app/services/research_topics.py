@@ -45,6 +45,28 @@ PIPELINE_TOPICS: tuple[ResearchTopic, ...] = (
             "What breaks most often, self-healing strategies, 17 USC 512 notice requirements, test-mode patterns."
         ),
     ),
+    ResearchTopic(
+        key="production-infrastructure",
+        title="Production infrastructure for IP protection SaaS",
+        query=(
+            "For a Next.js + FastAPI + Celery + Redis + Supabase/pgvector IP protection SaaS in 2026: "
+            "recommend production deployment architecture. Cover: Docker Compose vs Kubernetes vs Railway/Fly, "
+            "Celery worker queue topology (discovery/vectorize/takedown split), Redis persistence and sizing, "
+            "HuggingFace Inference Endpoints for SigLIP+DINOv2, Supabase scaling limits, health checks, "
+            "zero-downtime deploys, secrets management, and cost estimates at 100 vs 1000 clients."
+        ),
+    ),
+    ResearchTopic(
+        key="production-observability",
+        title="Production observability and alerting",
+        query=(
+            "For a FastAPI + Celery SaaS running counterfeit detection pipelines in 2026: "
+            "compare observability stacks (Sentry + Prometheus/Grafana vs Datadog vs OpenTelemetry). "
+            "Recommend: structured logging format, key Prometheus metrics (HTTP, Celery tasks, discovery latency, "
+            "embedding inference latency, queue depth), SLOs and alerting rules, error budgets, "
+            "on-call runbooks for takedown failures and discovery stalls."
+        ),
+    ),
 )
 
 TOPICS_BY_KEY = {t.key: t for t in PIPELINE_TOPICS}

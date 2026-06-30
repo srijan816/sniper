@@ -18,6 +18,9 @@ from app.services.research_queue import (
 @pytest.fixture(autouse=True)
 def clean_redis_queue():
     """Clear queue keys before each test."""
+    import app.services.research_queue as rq
+
+    rq._use_file = False
     mock_redis = MagicMock()
     store: dict[str, str] = {}
     lists: dict[str, list] = {"sniperip:research:queue": []}
@@ -51,6 +54,7 @@ def clean_redis_queue():
     mock_redis.rpush.side_effect = rpush
     mock_redis.lpop.side_effect = lpop
     mock_redis.llen.side_effect = llen
+    mock_redis.ping.return_value = True
 
     with patch("app.services.research_queue._redis", return_value=mock_redis):
         clear_active_job()

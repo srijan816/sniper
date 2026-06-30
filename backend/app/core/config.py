@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:3000"
     admin_emails: str = "admin@sniperip.com"
+    environment: str = "development"  # development | staging | production
+    app_version: str = "1.0.0"
+
+    # Observability
+    log_level: str = "INFO"
+    log_json: bool = False
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.1
+    prometheus_enabled: bool = True
 
     # Tier limits
     starter_threat_limit: int = 50

@@ -111,10 +111,46 @@ def apply_takedown_report(report: str, job_id: str) -> dict:
     return {"topic": "takedown-automation", "notes": notes}
 
 
+def apply_production_infrastructure_report(report: str, job_id: str) -> dict:
+    notes: list[str] = []
+    lowered = report.lower()
+
+    if "kubernetes" in lowered or "k8s" in lowered:
+        notes.append("Evaluate Kubernetes for multi-tenant scale; Docker Compose sufficient for early prod")
+    if "queue" in lowered and "worker" in lowered:
+        notes.append("Split Celery workers by queue: discovery, vectorize, takedown, default")
+    if "redis" in lowered:
+        notes.append("Enable Redis AOF persistence in production docker-compose.prod.yml")
+    if "huggingface" in lowered or "inference endpoint" in lowered:
+        notes.append("Deploy dedicated HF Inference Endpoints for SigLIP + DINOv2 (not shared API)")
+
+    _write_report_doc("production-infrastructure", "Production Infrastructure Research", report, job_id)
+    return {"topic": "production-infrastructure", "notes": notes}
+
+
+def apply_production_observability_report(report: str, job_id: str) -> dict:
+    notes: list[str] = []
+    lowered = report.lower()
+
+    if "sentry" in lowered:
+        notes.append("Configure SENTRY_DSN for API and Celery workers")
+    if "prometheus" in lowered or "grafana" in lowered:
+        notes.append("Scrape /api/metrics with Prometheus; alert on Celery queue depth and task failures")
+    if "structured" in lowered or "json" in lowered:
+        notes.append("Set LOG_JSON=true in production for log aggregation")
+    if "slo" in lowered or "alert" in lowered:
+        notes.append("Define SLOs: discovery tick success rate, takedown submit latency, API p99")
+
+    _write_report_doc("production-observability", "Production Observability Research", report, job_id)
+    return {"topic": "production-observability", "notes": notes}
+
+
 APPLY_HOOKS = {
     "vision-ensemble": apply_vision_ensemble_report,
     "discovery-multisource": apply_discovery_report,
     "takedown-automation": apply_takedown_report,
+    "production-infrastructure": apply_production_infrastructure_report,
+    "production-observability": apply_production_observability_report,
 }
 
 

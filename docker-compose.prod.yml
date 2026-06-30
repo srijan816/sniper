@@ -1,0 +1,126 @@
+# Production Docker Compose — no hot reload, split workers, healthchecks.
+# Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# Requires .env with production secrets. Keep TAKEDOWN_TEST_MODE_NO_SUBMIT=true
+# until takedown automation is verified end-to-end.
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      PROMETHEUS_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips="*"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  worker-discovery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q discovery -c 2 --hostname=discovery@%h
+    restart: unless-stopped
+
+  worker-vectorize:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q vectorize -c 1 --hostname=vectorize@%h
+    restart: unless-stopped
+
+  worker-takedown:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q takedown -c 1 --hostname=takedown@%h
+    restart: unless-stopped
+
+  worker-default:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q notifications,default -c 2 --hostname=default@%h
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+    restart: unless-stopped
+
+volumes:
+  redis_data:

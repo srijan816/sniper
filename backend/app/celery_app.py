@@ -1,6 +1,13 @@
 """Celery application configuration"""
 from celery import Celery
+
 from app.core.config import get_settings
+from app.core.logging_config import configure_logging, init_sentry
+from app.core.metrics import register_celery_metrics
+
+configure_logging()
+init_sentry()
+register_celery_metrics()
 
 settings = get_settings()
 
