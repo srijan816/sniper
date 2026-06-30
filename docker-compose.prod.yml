@@ -65,6 +65,12 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q discovery -c 2 --hostname=discovery@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d discovery@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - internal
@@ -84,6 +90,12 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q vectorize -c 1 --hostname=vectorize@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d vectorize@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - internal
@@ -104,6 +116,12 @@ services:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q takedown -c 1 --hostname=takedown@%h
     shm_size: "1gb"
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d takedown@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - internal
@@ -123,6 +141,12 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q notifications,default -c 2 --hostname=default@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d default@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - internal
@@ -142,6 +166,10 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app beat --loglevel=info
+    # beat is a scheduler, not a pingable worker; disable the image's HTTP
+    # healthcheck (relies on restart: unless-stopped for liveness).
+    healthcheck:
+      disable: true
     restart: unless-stopped
     networks:
       - internal
