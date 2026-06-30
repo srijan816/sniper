@@ -6,6 +6,7 @@ import uuid
 from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 from app.services.vector_store import get_asset_embedding, upsert_asset_embedding
 from app.services.vision import (
     compute_phash,
@@ -30,10 +31,7 @@ def _upload_thumbnail(asset_id: str, client_id: str, frame_bytes: bytes) -> str:
     path = f"{client_id}/{asset_id}-thumb.jpg"
     storage = _db().storage.from_(bucket)
     storage.upload(path, frame_bytes, {"content-type": "image/jpeg", "upsert": "true"})
-    public_url = storage.get_public_url(path)
-    if isinstance(public_url, dict):
-        return public_url.get("publicUrl") or public_url.get("public_url") or path
-    return str(public_url)
+    return storage_public_url(storage, path)
 
 
 def _fetch_asset(asset_id: str) -> dict:

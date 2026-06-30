@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Supabase
     supabase_url: str = ""
+    # Browser-facing base used to build public storage URLs. When the backend
+    # talks to Supabase over an internal address (e.g. http://kong:8000), set
+    # this to the public origin (e.g. https://sniperip.com) so stored image
+    # URLs are loadable from the browser. Falls back to supabase_url when unset.
+    supabase_public_url: str = ""
     supabase_service_role_key: str = ""
     supabase_anon_key: str = ""
     supabase_db_url: str = ""

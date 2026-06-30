@@ -14,6 +14,7 @@ from app.core.limiter import limiter
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 import hashlib
 import hmac
 import secrets
@@ -188,11 +189,7 @@ async def upload_loa_document(
         try:
             storage = _db().storage.from_(candidate_bucket)
             storage.upload(path, data, {"content-type": file.content_type or "application/pdf", "upsert": "true"})
-            public_url = storage.get_public_url(path)
-            if isinstance(public_url, dict):
-                loa_document_url = public_url.get("publicUrl") or public_url.get("public_url") or path
-            else:
-                loa_document_url = str(public_url)
+            loa_document_url = storage_public_url(storage, path)
             break
         except Exception as exc:
             last_error = exc

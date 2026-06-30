@@ -20,6 +20,7 @@ from app.core.limiter import get_real_ip, limiter
 from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 from app.services.serpapi_service import search_google_lens
 from app.services.vision import embedding_from_image_bytes
 
@@ -99,10 +100,7 @@ def _upload_scan_to_storage(db, file_bytes: bytes, scan_id: str, content_type: s
     path = f"scans/{scan_id}.jpg"
     storage = db.storage.from_(bucket)
     storage.upload(path, file_bytes, {"content-type": content_type, "upsert": "true"})
-    public_url = storage.get_public_url(path)
-    if isinstance(public_url, dict):
-        return public_url.get("publicUrl") or public_url.get("public_url") or path
-    return str(public_url)
+    return storage_public_url(storage, path)
 
 
 def _extract_host(url: str) -> str:
