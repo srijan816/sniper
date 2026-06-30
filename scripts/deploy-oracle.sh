@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pull latest code and restart the production stack.
 # Usage (on Oracle server):
-#   cd /opt/sniper && ./scripts/deploy-oracle.sh
+#   cd ~/sniper && ./scripts/deploy-oracle.sh
 
 set -euo pipefail
 
@@ -10,6 +10,12 @@ cd "$ROOT"
 
 BRANCH="${SNIPER_BRANCH:-cursor/sniperip-pipeline-upgrade-f271}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+
+# Host port Caddy is reachable on. Matches CADDY_BIND in docker-compose.prod.yml
+# (default 127.0.0.1:21080:80, fronted by the system reverse proxy). For a fresh
+# box where Caddy owns port 80 directly, set HEALTH_PORT=80.
+HEALTH_PORT="${HEALTH_PORT:-21080}"
+HEALTH_URL="http://127.0.0.1:${HEALTH_PORT}/api/health"
 
 echo "==> SniperIP deploy from $(pwd) (branch: ${BRANCH})"
 
@@ -50,7 +56,7 @@ docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
 echo "==> Waiting for health..."
 for i in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1/api/health" >/dev/null 2>&1; then
+  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
     echo "API healthy."
     break
   fi
@@ -68,6 +74,6 @@ echo "==> Deploy complete"
 docker compose -f "$COMPOSE_FILE" ps
 echo ""
 echo "App URL:  ${NEXT_PUBLIC_APP_URL:-http://140.245.107.78}"
-echo "API health: http://127.0.0.1/api/health"
-curl -fsS "http://127.0.0.1/api/health" | head -c 400 || true
+echo "API health: $HEALTH_URL"
+curl -fsS "$HEALTH_URL" | head -c 400 || true
 echo ""

@@ -61,14 +61,18 @@ For hardened verification/RPA, set:
 
 Full-stack deploy with Caddy reverse proxy, Next.js frontend, FastAPI, Celery workers, and Redis:
 
+The repo lives in `~/sniper` (`/home/ubuntu/sniper`). On a host that already
+runs a system reverse proxy (nginx) on 80/443, Caddy binds a local port
+(`127.0.0.1:21080` by default — see `CADDY_BIND`) and the host proxy fronts it.
+
 ```bash
-# First time on a fresh VM (140.245.107.78)
-sudo ./scripts/bootstrap-oracle.sh
-sudo nano /opt/sniper/.env          # fill secrets from deploy/env.oracle.example
-cd /opt/sniper && ./scripts/deploy-oracle.sh
+# First time on a fresh VM
+sudo ./scripts/bootstrap-oracle.sh   # installs Docker, clones to ~/sniper
+nano ~/sniper/.env                   # fill secrets from deploy/env.oracle.example
+cd ~/sniper && ./scripts/deploy-oracle.sh
 
 # After git pull
-./scripts/deploy-oracle.sh
+cd ~/sniper && ./scripts/deploy-oracle.sh
 ```
 
 See [deploy/README.md](deploy/README.md) for networking, HTTPS, and troubleshooting.

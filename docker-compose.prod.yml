@@ -163,9 +163,12 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    # On hosts that already run a system reverse proxy (nginx) on 80/443,
+    # bind Caddy to a local-only port and let the host proxy front it.
+    # For a fresh box that should own 80/443 directly, set in .env:
+    #   CADDY_BIND=80:80   (and add a second mapping 443:443 if using Caddy TLS)
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_BIND:-127.0.0.1:21080:80}"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

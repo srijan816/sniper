@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-SNIPER_REPO_DIR="${SNIPER_REPO_DIR:-/opt/sniper}"
+SNIPER_REPO_DIR="${SNIPER_REPO_DIR:-/home/ubuntu/sniper}"
 SNIPER_BRANCH="${SNIPER_BRANCH:-cursor/sniperip-pipeline-upgrade-f271}"
 SNIPER_REPO_URL="${SNIPER_REPO_URL:-https://github.com/srijan816/sniper.git}"
 

@@ -2,25 +2,34 @@
 
 Deploy SniperIP on a bare VM (tested target: **140.245.107.78**).
 
+Repo location: `~/sniper` (`/home/ubuntu/sniper`).
+
 ## Quick start (fresh Ubuntu VM)
 
 ```bash
-# 1. Bootstrap Docker + clone repo
-sudo SNIPER_REPO_DIR=/opt/sniper ./scripts/bootstrap-oracle.sh
+# 1. Bootstrap Docker + clone repo (defaults to ~/sniper)
+sudo ./scripts/bootstrap-oracle.sh
 
 # 2. Edit secrets
-sudo nano /opt/sniper/.env
+nano ~/sniper/.env
 
 # 3. Deploy
-cd /opt/sniper && sudo ./scripts/deploy-oracle.sh
+cd ~/sniper && ./scripts/deploy-oracle.sh
 ```
 
-Open `http://140.245.107.78` in a browser.
+## Reverse proxy
+
+Caddy binds `127.0.0.1:21080` by default (`CADDY_BIND` in
+`docker-compose.prod.yml`) so it can sit behind a system reverse proxy that
+already owns 80/443. A host nginx `server` block for the public domain proxies
+`/` to `http://127.0.0.1:21080`; Caddy then splits `/api/*` → FastAPI and the
+rest → Next.js. For a fresh box where Caddy should own 80/443 directly, set
+`CADDY_BIND=80:80` (and add a `443:443` mapping) and `HEALTH_PORT=80`.
 
 ## Updates after code changes
 
 ```bash
-cd /opt/sniper
+cd ~/sniper
 git pull origin cursor/sniperip-pipeline-upgrade-f271
 ./scripts/deploy-oracle.sh
 ```
