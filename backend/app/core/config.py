@@ -124,6 +124,7 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.1
     prometheus_enabled: bool = True
+    metrics_auth_token: str = ""
 
     # Tier limits
     starter_threat_limit: int = 50

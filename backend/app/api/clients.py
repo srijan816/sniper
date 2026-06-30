@@ -9,9 +9,8 @@ from typing import List
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, Depends
-from slowapi import Limiter
 
-from app.main import get_real_ip
+from app.core.limiter import limiter
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
@@ -31,7 +30,6 @@ from app.models.schemas import (
 from app.api.deps import get_current_client_id
 
 router = APIRouter()
-limiter = Limiter(key_func=get_real_ip)
 
 
 def validate_webhook_url(url: str) -> bool:

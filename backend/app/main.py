@@ -1,35 +1,18 @@
 """SniperIP Backend - FastAPI Main Application"""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.core.limiter import limiter
 from app.core.logging_config import configure_logging, init_sentry
 from app.core.startup import validate_startup
 from app.middleware.request_metrics import RequestMetricsMiddleware
 
 configure_logging()
 init_sentry()
-
-
-def get_real_ip(request: Request) -> str:
-    """Extract the real client IP, accounting for Cloudflare, Nginx, and AWS ALB proxies."""
-    # Cloudflare sets CF-Connecting-IP to the original client IP
-    cf_ip = request.headers.get("CF-Connecting-IP")
-    if cf_ip:
-        return cf_ip.strip()
-    # X-Forwarded-For may be a comma-separated chain; the first entry is the client
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    # Nginx sets X-Real-IP
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-    # Fallback to direct connection
-    return request.client.host if request.client else "unknown"
 
 
 @asynccontextmanager
@@ -45,7 +28,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-limiter = Limiter(key_func=get_real_ip, default_limits=["1000/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(RequestMetricsMiddleware)

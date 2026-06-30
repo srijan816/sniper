@@ -73,5 +73,6 @@ def register_celery_metrics() -> None:
 
     @task_failure.connect
     def _on_failure(sender=None, task_id=None, **kwargs):
+        # task_postrun already records FAILURE; only clean up orphaned timers here.
         name = getattr(sender, "name", str(sender))
-        CELERY_TASKS.labels(task=name, status="FAILURE").inc()
+        _starts.pop(task_id or name, None)

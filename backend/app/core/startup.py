@@ -44,6 +44,8 @@ def validate_startup(*, settings: Settings | None = None, strict: bool | None = 
             warnings.append(
                 "TAKEDOWN_TEST_MODE_NO_SUBMIT=true — takedowns will NOT be submitted (intended for staging only)"
             )
+        if not settings.metrics_auth_token:
+            warnings.append("METRICS_AUTH_TOKEN unset — /api/metrics will reject unauthenticated scrapes in production")
         if not settings.huggingface_inference_endpoint_url:
             warnings.append(
                 "HUGGINGFACE_INFERENCE_ENDPOINT_URL unset — vision embeddings may use shared HF API (not recommended for prod)"

@@ -197,22 +197,17 @@ async def trigger_research_tick(_admin: str = Depends(get_admin_user)):
 @router.post("/research/adopt")
 async def adopt_research_job(body: AdoptResearchJobRequest, _admin: str = Depends(get_admin_user)):
     """Adopt an externally submitted AI-Q job into the pipeline tracker."""
-    from app.services.research_queue import TOPICS_BY_KEY, get_active_job
-    from app.workers.research import adopt_research_job
+    from app.services.research_queue import TOPICS_BY_KEY, adopt_external_job
 
     if body.topic_key not in TOPICS_BY_KEY:
         raise HTTPException(status_code=400, detail=f"Unknown topic_key: {body.topic_key}")
-    active = get_active_job()
-    if active:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Research job already active: {active.get('topic_key')}",
-        )
-
-    task = adopt_research_job.delay(body.topic_key, body.job_id)
+    try:
+        payload = adopt_external_job(body.topic_key, body.job_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {
         "status": "adopted",
-        "task_id": task.id,
         "topic_key": body.topic_key,
         "job_id": body.job_id,
+        "active": payload,
     }
