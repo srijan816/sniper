@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.logging_config import configure_logging, init_sentry
 from app.core.startup import validate_startup
@@ -13,6 +14,19 @@ from app.middleware.request_metrics import RequestMetricsMiddleware
 
 configure_logging()
 init_sentry()
+
+
+def _cors_origins() -> list[str]:
+    settings = get_settings()
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if settings.frontend_url and settings.frontend_url not in origins:
+        origins.append(settings.frontend_url)
+    if settings.public_host:
+        for scheme in ("http", "https"):
+            origin = f"{scheme}://{settings.public_host}"
+            if origin not in origins:
+                origins.append(origin)
+    return origins
 
 
 @asynccontextmanager
@@ -49,7 +63,7 @@ from app.api.prometheus import router as prometheus_router
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://sniperip.com"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

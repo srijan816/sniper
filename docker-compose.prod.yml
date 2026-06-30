@@ -1,8 +1,13 @@
-# Production Docker Compose — no hot reload, split workers, healthchecks.
-# Usage: docker compose -f docker-compose.prod.yml up -d
+# SniperIP production stack — Oracle / bare-metal ready.
 #
-# Requires .env with production secrets. Keep TAKEDOWN_TEST_MODE_NO_SUBMIT=true
-# until takedown automation is verified end-to-end.
+# First deploy:
+#   cp deploy/env.oracle.example .env   # fill in secrets
+#   ./scripts/deploy-oracle.sh
+#
+# Updates after git pull:
+#   ./scripts/deploy-oracle.sh
+
+name: sniperip
 
 services:
   redis:
@@ -16,13 +21,13 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - internal
 
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -35,17 +40,19 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips="*"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     restart: unless-stopped
+    networks:
+      - internal
 
   worker-discovery:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -57,11 +64,13 @@ services:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q discovery -c 2 --hostname=discovery@%h
     restart: unless-stopped
+    networks:
+      - internal
 
   worker-vectorize:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -73,11 +82,13 @@ services:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q vectorize -c 1 --hostname=vectorize@%h
     restart: unless-stopped
+    networks:
+      - internal
 
   worker-takedown:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -88,12 +99,15 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q takedown -c 1 --hostname=takedown@%h
+    shm_size: "1gb"
     restart: unless-stopped
+    networks:
+      - internal
 
   worker-default:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -105,11 +119,13 @@ services:
         condition: service_healthy
     command: celery -A app.celery_app worker --loglevel=info -Q notifications,default -c 2 --hostname=default@%h
     restart: unless-stopped
+    networks:
+      - internal
 
   beat:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     env_file:
       - .env
     environment:
@@ -121,6 +137,53 @@ services:
         condition: service_healthy
     command: celery -A app.celery_app beat --loglevel=info
     restart: unless-stopped
+    networks:
+      - internal
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-140.245.107.78}
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
 
 volumes:
   redis_data:
+  caddy_data:
+  caddy_config:

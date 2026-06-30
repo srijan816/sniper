@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:3000"
     admin_emails: str = "admin@sniperip.com"
+    cors_origins: str = "http://localhost:3000,https://sniperip.com"
+    public_host: str = ""
     environment: str = "development"  # development | staging | production
     app_version: str = "1.0.0"
 

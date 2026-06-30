@@ -1,0 +1,31 @@
+# Caddy reverse proxy for SniperIP production.
+# Routes /api/* to FastAPI and everything else to Next.js.
+#
+# Set PUBLIC_HOST in .env (IP or domain). Default: 140.245.107.78
+
+{
+	admin off
+}
+
+:80 {
+	encode gzip zstd
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# Uncomment and set PUBLIC_HOST to your domain once DNS points here:
+# {$PUBLIC_HOST} {
+# 	encode gzip zstd
+# 	handle /api/* {
+# 		reverse_proxy api:8000
+# 	}
+# 	handle {
+# 		reverse_proxy web:3000
+# 	}
+# }

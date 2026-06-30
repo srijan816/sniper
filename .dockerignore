@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+.next
+.env
+.env.*
+!.env.example
+backend/.pytest_cache
+backend/.research-queue-state.json
+backend/tests
+backend/conftest.py
+backend/requirements-dev.txt
+**/__pycache__
+**/*.pyc
+docs
+*.md
+!README.md

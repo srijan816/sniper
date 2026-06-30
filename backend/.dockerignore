@@ -1,0 +1,7 @@
+.pytest_cache
+.research-queue-state.json
+tests
+conftest.py
+requirements-dev.txt
+**/__pycache__
+**/*.pyc
