@@ -9,6 +9,10 @@ import httpx
 
 from app.core.config import get_settings
 from app.services.serpapi_service import DiscoveryCandidate, filter_whitelisted, search_google_lens
+from app.services.searxng_service import (
+    search_searxng_images,
+    search_searxng_marketplaces,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,23 +123,43 @@ def discover_candidates_for_asset(
 ) -> List[DiscoveryCandidate]:
     """
     Run multi-source discovery and return deduplicated, whitelist-filtered candidates.
-    Google Lens is always the primary source; shopping and Bing are optional add-ons.
+
+    SerpApi sources (Google Lens / Bing reverse-image / Google Shopping) run only
+    when ``SERPAPI_KEY`` is configured. The free SearXNG sources (image search +
+    marketplace ``site:`` search) run whenever ``discovery_enable_searxng`` is set.
+    All candidates are still visually verified downstream by the SigLIP+DINOv2+pHash
+    ensemble, so SearXNG only needs to supply plausible candidates.
     """
+    settings = get_settings()
     all_candidates: list[DiscoveryCandidate] = []
 
-    try:
-        all_candidates.extend(search_google_lens(image_url))
-    except Exception as exc:
-        logger.error("Google Lens discovery failed: %s", exc)
-
-    if enable_bing:
-        all_candidates.extend(search_bing_reverse_image(image_url))
-
-    if enable_shopping and brand_name:
-        query_parts = [brand_name.strip()]
+    # Brand/product text query, shared by shopping + SearXNG lanes.
+    query = ""
+    if brand_name:
+        parts = [brand_name.strip()]
         if product_title:
-            query_parts.append(product_title.strip())
-        query = " ".join(query_parts)
-        all_candidates.extend(search_google_shopping(query))
+            parts.append(product_title.strip())
+        query = " ".join(p for p in parts if p)
+
+    # --- Paid SerpApi sources (only when a key is configured) ---
+    if settings.serpapi_key:
+        try:
+            all_candidates.extend(search_google_lens(image_url))
+        except Exception as exc:
+            logger.error("Google Lens discovery failed: %s", exc)
+        if enable_bing:
+            all_candidates.extend(search_bing_reverse_image(image_url))
+        if enable_shopping and query:
+            all_candidates.extend(search_google_shopping(query))
+
+    # --- Free SearXNG sources (image search + marketplace site: search) ---
+    if settings.discovery_enable_searxng and query:
+        try:
+            all_candidates.extend(search_searxng_images(query))
+            marketplaces = [m.strip() for m in (settings.discovery_marketplaces or "").split(",") if m.strip()]
+            if marketplaces:
+                all_candidates.extend(search_searxng_marketplaces(query, marketplaces))
+        except Exception as exc:
+            logger.warning("SearXNG discovery failed: %s", exc)
 
     return filter_whitelisted(_dedupe_candidates(all_candidates), whitelist_domains)

@@ -26,9 +26,17 @@ class Settings(BaseSettings):
     stripe_growth_price_id: str = ""
     stripe_agency_price_id: str = ""
 
-    # SerpApi
+    # SerpApi (optional paid discovery — leave blank to use free SearXNG instead)
     serpapi_key: str = ""
     serpapi_engine: str = "google_lens"
+
+    # SearXNG (free self-hosted discovery; reuses the shared app2 SearXNG)
+    searxng_url: str = "http://searxng:8080"
+    searxng_engines: str = "bing"            # web engines that work without a proxy
+    searxng_image_engines: str = "bing images"
+    discovery_enable_searxng: bool = True
+    # Marketplaces to target via `site:` web search (comma-separated hosts)
+    discovery_marketplaces: str = "ebay.com,aliexpress.com,etsy.com,walmart.com,dhgate.com,poshmark.com"
 
     # Resend
     resend_api_key: str = ""

@@ -24,6 +24,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   api:
     build:
@@ -50,6 +51,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   worker-discovery:
     build:
@@ -75,6 +77,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   worker-vectorize:
     build:
@@ -100,6 +103,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   worker-takedown:
     build:
@@ -126,6 +130,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   worker-default:
     build:
@@ -151,6 +156,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   beat:
     build:
@@ -174,6 +180,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   web:
     build:
@@ -196,6 +203,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
   caddy:
     image: caddy:2-alpine
@@ -218,6 +226,7 @@ services:
     networks:
       - internal
       - sb_shared
+      - app2_deep_research_net
 
 networks:
   internal:
@@ -225,6 +234,10 @@ networks:
   # Shared with the self-hosted Supabase stack (~/supabase) so the API,
   # workers, beat and web can reach kong (Supabase gateway) and db by name.
   sb_shared:
+    external: true
+  # Shared with the app2 deep-research stack so discovery can reach its
+  # self-hosted SearXNG (searxng:8080) for free candidate sourcing.
+  app2_deep_research_net:
     external: true
 
 volumes:
