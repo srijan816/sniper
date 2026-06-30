@@ -73,3 +73,11 @@ def test_save_report():
     save_report("vision-ensemble", "Test report body", job_id="job-123")
     status = queue_status()
     assert "vision-ensemble" in status["completed"]
+
+
+def test_adopt_rejects_when_active_job_running():
+    from app.services.research_queue import adopt_external_job, set_active_job
+
+    set_active_job({"topic_key": "vision-ensemble", "aiq_job_id": "existing-job"})
+    with pytest.raises(RuntimeError, match="already active"):
+        adopt_external_job("discovery-multisource", "new-job-id")

@@ -55,8 +55,12 @@ async def stripe_webhook(request: Request):
     try:
         if signature and settings.stripe_webhook_secret:
             event = stripe.Webhook.construct_event(payload=payload, sig_header=signature, secret=settings.stripe_webhook_secret)
+        elif settings.environment == "production":
+            raise HTTPException(status_code=400, detail="Stripe webhook signature required in production")
         else:
             event = json.loads(payload.decode("utf-8"))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid Stripe webhook payload: {exc}") from exc
 

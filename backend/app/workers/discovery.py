@@ -14,7 +14,7 @@ from app.services.discovery_orchestrator import discover_candidates_for_asset
 from app.services.listing_intel import fetch_listing_intel
 from app.services.threat_intelligence import enrich_threat_with_explanation
 from app.services.threat_store import create_or_get_discovered_threat
-from app.services.vision import combined_similarity, download_bytes
+from app.services.vision import asset_image_source_url, combined_similarity, download_bytes
 from app.workers.notifications import send_upgrade_email
 from app.workers.vectorize import ensure_asset_vectorized
 
@@ -185,7 +185,7 @@ def run_discovery_for_client(client_id: str):
             break
         asset_id = asset["id"]
         ensure_asset_vectorized(asset_id)
-        source_url = asset.get("thumbnail_url") if (asset.get("asset_type") or "").upper() == "VIDEO" else asset.get("storage_url")
+        source_url = asset_image_source_url(asset)
         if not source_url:
             continue
 

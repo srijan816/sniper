@@ -239,9 +239,19 @@ def queue_status() -> dict[str, Any]:
     }
 
 
+def _assert_no_active_job() -> None:
+    active = get_active_job()
+    if active:
+        raise RuntimeError(
+            f"Research job already active: topic={active.get('topic_key')} "
+            f"job_id={active.get('aiq_job_id')}"
+        )
+
+
 def adopt_external_job(topic_key: str, job_id: str) -> dict[str, Any]:
     if topic_key not in TOPICS_BY_KEY:
         raise ValueError(f"Unknown topic: {topic_key}")
+    _assert_no_active_job()
     payload = {
         "id": str(uuid.uuid4()),
         "topic_key": topic_key,
@@ -257,6 +267,7 @@ def adopt_external_job(topic_key: str, job_id: str) -> dict[str, Any]:
 def start_topic(topic: ResearchTopic) -> dict[str, Any]:
     from app.services.research_service import submit_research
 
+    _assert_no_active_job()
     job_id = submit_research(topic.query, depth=topic.depth, agent_type=topic.agent_type)
     if not job_id:
         raise RuntimeError(f"Failed to submit research for topic {topic.key}")

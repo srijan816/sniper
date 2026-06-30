@@ -6,7 +6,13 @@ from app.models.schemas import VerifyThreatRequest, VerifyThreatResponse
 from app.services.threat_intelligence import enrich_threat_with_explanation
 from app.services.threat_store import create_or_get_discovered_threat
 from app.services.vector_store import get_asset_phash
-from app.services.vision import combined_similarity, compute_phash, download_bytes, phash_hamming_distance
+from app.services.vision import (
+    asset_image_source_url,
+    combined_similarity,
+    compute_phash,
+    download_bytes,
+    phash_hamming_distance,
+)
 from app.workers.vectorize import ensure_asset_vectorized
 from app.api.deps import get_current_client_id
 
@@ -21,7 +27,9 @@ async def verify_threat(data: VerifyThreatRequest, client_id: str = Depends(get_
     if db is None:
         raise HTTPException(status_code=503, detail="Supabase is not configured.")
 
-    asset_res = db.table("assets").select("id,original_filename,storage_url").eq("id", data.asset_id).eq("client_id", client_id).limit(1).execute()
+    asset_res = db.table("assets").select(
+        "id,original_filename,storage_url,thumbnail_url,asset_type"
+    ).eq("id", data.asset_id).eq("client_id", client_id).limit(1).execute()
     asset_rows = asset_res.data or []
     if not asset_rows:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -31,7 +39,13 @@ async def verify_threat(data: VerifyThreatRequest, client_id: str = Depends(get_
     try:
         ensure_asset_vectorized(data.asset_id)
         asset_phash = get_asset_phash(data.asset_id)
-        asset_bytes = download_bytes(asset["storage_url"])
+        source_url = asset_image_source_url(asset)
+        if not source_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Video assets require a thumbnail_url for image verification.",
+            )
+        asset_bytes = download_bytes(source_url)
         candidate_bytes = download_bytes(data.candidate_image_url)
         candidate_phash = compute_phash(candidate_bytes)
 

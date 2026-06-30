@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.database import get_supabase_client
-from app.models.schemas import AdminMetrics, CostMetrics, DLQEntry
+from app.models.schemas import AdminMetrics, AdoptResearchJobRequest, CostMetrics, DLQEntry
 from app.workers.takedown import queue_takedown
 from app.api.deps import get_admin_user
 
@@ -195,13 +195,24 @@ async def trigger_research_tick(_admin: str = Depends(get_admin_user)):
 
 
 @router.post("/research/adopt")
-async def adopt_research_job(body: dict, _admin: str = Depends(get_admin_user)):
+async def adopt_research_job(body: AdoptResearchJobRequest, _admin: str = Depends(get_admin_user)):
     """Adopt an externally submitted AI-Q job into the pipeline tracker."""
-    topic_key = body.get("topic_key")
-    job_id = body.get("job_id")
-    if not topic_key or not job_id:
-        raise HTTPException(status_code=400, detail="topic_key and job_id required")
+    from app.services.research_queue import TOPICS_BY_KEY, get_active_job
     from app.workers.research import adopt_research_job
 
-    task = adopt_research_job.delay(topic_key, job_id)
-    return {"status": "adopted", "task_id": task.id, "topic_key": topic_key, "job_id": job_id}
+    if body.topic_key not in TOPICS_BY_KEY:
+        raise HTTPException(status_code=400, detail=f"Unknown topic_key: {body.topic_key}")
+    active = get_active_job()
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Research job already active: {active.get('topic_key')}",
+        )
+
+    task = adopt_research_job.delay(body.topic_key, body.job_id)
+    return {
+        "status": "adopted",
+        "task_id": task.id,
+        "topic_key": body.topic_key,
+        "job_id": body.job_id,
+    }

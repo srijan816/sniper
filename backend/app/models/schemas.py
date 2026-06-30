@@ -318,3 +318,8 @@ class VerifyThreatResponse(BaseModel):
     is_threat: bool
     similarity_score: float
     threat_id: Optional[str] = None
+
+
+class AdoptResearchJobRequest(BaseModel):
+    topic_key: str = Field(min_length=1, max_length=128)
+    job_id: str = Field(min_length=1, max_length=128)

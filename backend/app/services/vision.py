@@ -169,6 +169,31 @@ def _get_local_dinov2():
     return _LOCAL_DINOV2_MODEL, _LOCAL_DINOV2_PROCESSOR
 
 
+def asset_image_source_url(asset: dict) -> str | None:
+    """Return the URL to use for image-based verification (thumbnail for videos)."""
+    if (asset.get("asset_type") or "").upper() == "VIDEO":
+        return asset.get("thumbnail_url") or None
+    return asset.get("storage_url")
+
+
+def _siglip_features_to_vector(outputs) -> List[float]:
+    """Extract a 1D embedding from SigLIP get_image_features output."""
+    if hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
+        return outputs.pooler_output[0].tolist()
+    if hasattr(outputs, "last_hidden_state"):
+        return outputs.last_hidden_state.mean(dim=1)[0].tolist()
+    if hasattr(outputs, "ndim") and hasattr(outputs, "tolist"):
+        if outputs.ndim >= 2:
+            return outputs[0].tolist()
+        return outputs.tolist()
+    if isinstance(outputs, (list, tuple)) and outputs:
+        first = outputs[0]
+        if hasattr(first, "ndim") and hasattr(first, "tolist"):
+            return first.tolist() if first.ndim == 1 else first[0].tolist()
+        return list(first)
+    raise RuntimeError("Unexpected SigLIP embedding output shape.")
+
+
 def _embedding_siglip_local(image_bytes: bytes) -> List[float]:
     import torch
 
@@ -177,12 +202,7 @@ def _embedding_siglip_local(image_bytes: bytes) -> List[float]:
     inputs = processor(images=image, return_tensors="pt")
     with torch.no_grad():
         outputs = model.get_image_features(**inputs)
-        if hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
-            vector = outputs.pooler_output[0].tolist()
-        elif hasattr(outputs, "last_hidden_state"):
-            vector = outputs.last_hidden_state.mean(dim=1)[0].tolist()
-        else:
-            vector = outputs[0].mean(dim=0).tolist()
+        vector = _siglip_features_to_vector(outputs)
     return _normalize_embedding(vector)
 
 
@@ -204,6 +224,11 @@ def _embedding_from_openai(image_bytes: bytes) -> List[float]:
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required for OpenAI vision embeddings.")
+    if int(settings.embedding_dimension or 1152) != 1536:
+        raise RuntimeError(
+            "OpenAI text-embedding-3-small produces 1536-dim vectors; "
+            "set EMBEDDING_DIMENSION=1536 or disable HUGGINGFACE_ALLOW_OPENAI_FALLBACK."
+        )
 
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
     prompt = (

@@ -16,8 +16,12 @@ RESEARCH_DOCS = REPO_ROOT / "docs" / "research"
 
 
 def _write_report_doc(topic_key: str, title: str, report: str, job_id: str) -> Path:
+    if ".." in topic_key or "/" in topic_key or "\\" in topic_key:
+        raise ValueError(f"Invalid topic_key for report path: {topic_key}")
     RESEARCH_DOCS.mkdir(parents=True, exist_ok=True)
-    path = RESEARCH_DOCS / f"{topic_key}.md"
+    path = (RESEARCH_DOCS / f"{topic_key}.md").resolve()
+    if not str(path).startswith(str(RESEARCH_DOCS.resolve())):
+        raise ValueError(f"Invalid topic_key for report path: {topic_key}")
     content = (
         f"# {title}\n\n"
         f"**AI-Q Job:** `{job_id}`  \n"

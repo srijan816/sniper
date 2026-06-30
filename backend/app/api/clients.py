@@ -8,7 +8,10 @@ import uuid
 from typing import List
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, Depends
+from slowapi import Limiter
+
+from app.main import get_real_ip
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
@@ -28,6 +31,7 @@ from app.models.schemas import (
 from app.api.deps import get_current_client_id
 
 router = APIRouter()
+limiter = Limiter(key_func=get_real_ip)
 
 
 def validate_webhook_url(url: str) -> bool:
@@ -513,7 +517,9 @@ async def test_notification_legacy(client_id: str = Depends(get_current_client_i
 
 
 @router.post("/{client_id}/research-brand")
+@limiter.limit("3/day")
 async def trigger_brand_research(
+    request: Request,
     client_id: str = Depends(get_current_client_id),
     product_category: str = "consumer goods",
 ):
@@ -523,9 +529,20 @@ async def trigger_brand_research(
     """
     from app.workers.research import run_brand_research
 
-    rows = _db().table("clients").select("id").eq("id", client_id).limit(1).execute().data or []
+    rows = (
+        _db()
+        .table("clients")
+        .select("id,brand_research")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
     if not rows:
         raise HTTPException(status_code=404, detail="Client not found")
+    if rows[0].get("brand_research"):
+        return {"status": "skipped", "message": "Brand research already completed for this client"}
 
     task = run_brand_research.delay(client_id, product_category)
     return {"status": "queued", "task_id": task.id, "message": "Brand research queued (runs sequentially via AI-Q)"}
