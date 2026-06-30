@@ -368,3 +368,93 @@ def combined_similarity(
         phash=phash_sim,
         phash_distance=phash_dist,
     )
+
+
+def score_candidate_match(
+    candidate_bytes: bytes,
+    *,
+    asset_phash: str | None = None,
+    asset_siglip: List[float] | None = None,
+    asset_bytes: bytes | None = None,
+    asset_source_url: str | None = None,
+    fast_reject_margin: float | None = None,
+) -> SimilarityBreakdown:
+    """
+    Cascade verification for discovery/verify:
+    1. pHash fast-path when hashes are very close
+    2. SigLIP using stored asset embedding (one inference, not two)
+    3. Full DINOv2 ensemble only when score is near threshold
+    """
+    settings = get_settings()
+    margin = float(fast_reject_margin if fast_reject_margin is not None else settings.discovery_fast_reject_margin)
+    threshold = float(settings.similarity_threshold)
+
+    candidate_phash = compute_phash(candidate_bytes)
+    if asset_phash:
+        phash_sim, phash_dist = phash_similarity(asset_phash, candidate_phash)
+        if phash_dist <= int(settings.phash_distance_threshold):
+            fast_combined = max(threshold, 1.0 - (phash_dist / 64.0))
+            return SimilarityBreakdown(
+                combined=fast_combined,
+                siglip=fast_combined,
+                dinov2=fast_combined,
+                phash=phash_sim,
+                phash_distance=phash_dist,
+            )
+    else:
+        if asset_bytes is None:
+            raise ValueError("asset_phash or asset_bytes required for candidate scoring")
+        asset_phash_val = compute_phash(asset_bytes)
+        phash_sim, phash_dist = phash_similarity(asset_phash_val, candidate_phash)
+        asset_phash = asset_phash_val
+
+    siglip_a = asset_siglip
+    if siglip_a is None:
+        if asset_bytes is None:
+            if asset_source_url:
+                asset_bytes = download_bytes(asset_source_url)
+            else:
+                raise ValueError("asset_siglip, asset_bytes, or asset_source_url required")
+        siglip_a = siglip_embedding_from_image_bytes(asset_bytes)
+
+    siglip_b = siglip_embedding_from_image_bytes(candidate_bytes)
+    siglip_sim = cosine_similarity(siglip_a, siglip_b)
+
+    quick_combined = (
+        float(settings.similarity_weight_siglip) * siglip_sim
+        + float(settings.similarity_weight_dinov2) * siglip_sim
+        + float(settings.similarity_weight_phash) * phash_sim
+    )
+    if quick_combined < threshold - margin:
+        return SimilarityBreakdown(
+            combined=quick_combined,
+            siglip=siglip_sim,
+            dinov2=siglip_sim,
+            phash=phash_sim,
+            phash_distance=phash_dist,
+        )
+
+    if asset_bytes is None and asset_source_url and settings.dinov2_enabled:
+        asset_bytes = download_bytes(asset_source_url)
+
+    dinov2_sim = siglip_sim
+    if settings.dinov2_enabled and asset_bytes:
+        try:
+            dinov2_a = dinov2_embedding_from_image_bytes(asset_bytes)
+            dinov2_b = dinov2_embedding_from_image_bytes(candidate_bytes)
+            dinov2_sim = cosine_similarity(dinov2_a, dinov2_b)
+        except Exception:
+            dinov2_sim = siglip_sim
+
+    combined = (
+        float(settings.similarity_weight_siglip) * siglip_sim
+        + float(settings.similarity_weight_dinov2) * dinov2_sim
+        + float(settings.similarity_weight_phash) * phash_sim
+    )
+    return SimilarityBreakdown(
+        combined=combined,
+        siglip=siglip_sim,
+        dinov2=dinov2_sim,
+        phash=phash_sim,
+        phash_distance=phash_dist,
+    )

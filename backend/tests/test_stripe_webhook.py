@@ -49,12 +49,13 @@ def test_subscription_deleted_downgrades_to_free(webhook_client):
     db.table.return_value.update.assert_called()
 
 
-def test_stripe_webhook_requires_signature_in_production(webhook_client):
+def test_stripe_webhook_requires_signature_when_unsigned_disabled(webhook_client):
     http, _ = webhook_client
     payload = json.dumps(_make_cancellation_event(STRIPE_CUSTOMER_ID)).encode()
     with patch("app.api.webhooks.get_settings") as mock_settings:
-        mock_settings.return_value.environment = "production"
+        mock_settings.return_value.environment = "development"
         mock_settings.return_value.stripe_webhook_secret = ""
+        mock_settings.return_value.stripe_webhook_allow_unsigned = False
         mock_settings.return_value.stripe_secret_key = "sk_test"
         response = http.post("/api/webhooks/stripe", content=payload, headers={"Content-Type": "application/json"})
     assert response.status_code == 400

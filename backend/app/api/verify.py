@@ -5,13 +5,13 @@ from app.core.config import get_settings
 from app.models.schemas import VerifyThreatRequest, VerifyThreatResponse
 from app.services.threat_intelligence import enrich_threat_with_explanation
 from app.services.threat_store import create_or_get_discovered_threat
-from app.services.vector_store import get_asset_phash
+from app.services.vector_store import get_asset_embedding, get_asset_phash
 from app.services.vision import (
     asset_image_source_url,
-    combined_similarity,
     compute_phash,
     download_bytes,
     phash_hamming_distance,
+    score_candidate_match,
 )
 from app.workers.vectorize import ensure_asset_vectorized
 from app.api.deps import get_current_client_id
@@ -39,13 +39,13 @@ async def verify_threat(data: VerifyThreatRequest, client_id: str = Depends(get_
     try:
         ensure_asset_vectorized(data.asset_id)
         asset_phash = get_asset_phash(data.asset_id)
+        asset_siglip = get_asset_embedding(data.asset_id)
         source_url = asset_image_source_url(asset)
         if not source_url:
             raise HTTPException(
                 status_code=400,
                 detail="Video assets require a thumbnail_url for image verification.",
             )
-        asset_bytes = download_bytes(source_url)
         candidate_bytes = download_bytes(data.candidate_image_url)
         candidate_phash = compute_phash(candidate_bytes)
 
@@ -71,7 +71,12 @@ async def verify_threat(data: VerifyThreatRequest, client_id: str = Depends(get_
                     )
                 return VerifyThreatResponse(is_threat=True, similarity_score=similarity, threat_id=threat_id)
 
-        breakdown = combined_similarity(asset_bytes, candidate_bytes, asset_phash=asset_phash)
+        breakdown = score_candidate_match(
+            candidate_bytes,
+            asset_phash=asset_phash,
+            asset_siglip=asset_siglip,
+            asset_source_url=source_url,
+        )
         similarity = breakdown.combined
         is_threat = similarity >= settings.similarity_threshold
         if not is_threat:

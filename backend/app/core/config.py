@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     # Test Mode
     takedown_test_mode_no_submit: bool = False
 
+    # Discovery performance — skip full DINOv2 ensemble when quick score is far below threshold
+    discovery_fast_reject_margin: float = 0.12
+
+    # Stripe — only allow unsigned webhooks when explicitly enabled (local dev)
+    stripe_webhook_allow_unsigned: bool = False
+
     model_config = SettingsConfigDict(
         env_file="../.env",
         env_file_encoding="utf-8",

@@ -65,3 +65,30 @@ def test_asset_image_source_url_video_requires_thumbnail():
         == "https://x/thumb.jpg"
     )
     assert asset_image_source_url({"asset_type": "IMAGE", "storage_url": "https://x/img.jpg"}) == "https://x/img.jpg"
+
+
+def test_score_candidate_match_fast_rejects_low_siglip():
+    from unittest.mock import patch
+
+    from app.services.vision import score_candidate_match
+
+    img_a = _solid_image((255, 0, 0))
+    img_b = _solid_image((0, 0, 255))
+
+    with patch("app.services.vision.phash_similarity", return_value=(0.5, 20)):
+        with patch("app.services.vision.siglip_embedding_from_image_bytes", return_value=[0.0, 1.0]):
+            with patch("app.services.vision.get_settings") as mock_settings:
+                mock_settings.return_value.similarity_threshold = 0.90
+                mock_settings.return_value.discovery_fast_reject_margin = 0.12
+                mock_settings.return_value.similarity_weight_siglip = 0.55
+                mock_settings.return_value.similarity_weight_dinov2 = 0.40
+                mock_settings.return_value.similarity_weight_phash = 0.05
+                mock_settings.return_value.phash_distance_threshold = 6
+                mock_settings.return_value.dinov2_enabled = True
+                breakdown = score_candidate_match(
+                    img_b,
+                    asset_phash="abc123",
+                    asset_siglip=[1.0, 0.0],
+                )
+    assert breakdown.combined < 0.78
+    assert breakdown.siglip == 0.0

@@ -14,7 +14,8 @@ from app.services.discovery_orchestrator import discover_candidates_for_asset
 from app.services.listing_intel import fetch_listing_intel
 from app.services.threat_intelligence import enrich_threat_with_explanation
 from app.services.threat_store import create_or_get_discovered_threat
-from app.services.vision import asset_image_source_url, combined_similarity, download_bytes
+from app.services.vector_store import get_asset_embedding, get_asset_phash
+from app.services.vision import asset_image_source_url, download_bytes, score_candidate_match
 from app.workers.notifications import send_upgrade_email
 from app.workers.vectorize import ensure_asset_vectorized
 
@@ -189,9 +190,9 @@ def run_discovery_for_client(client_id: str):
         if not source_url:
             continue
 
-        try:
-            asset_bytes = download_bytes(source_url)
-        except Exception:
+        asset_siglip = get_asset_embedding(asset_id)
+        asset_phash = get_asset_phash(asset_id)
+        if not asset_siglip:
             continue
 
         candidates = discover_candidates_for_asset(
@@ -224,12 +225,11 @@ def run_discovery_for_client(client_id: str):
             except Exception:
                 continue
 
-            from app.services.vector_store import get_asset_phash
-
-            breakdown = combined_similarity(
-                asset_bytes,
+            breakdown = score_candidate_match(
                 candidate_bytes,
-                asset_phash=get_asset_phash(asset_id),
+                asset_phash=asset_phash,
+                asset_siglip=asset_siglip,
+                asset_source_url=source_url,
             )
             stored_similarity = breakdown.combined
 

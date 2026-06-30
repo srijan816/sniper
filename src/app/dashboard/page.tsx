@@ -102,8 +102,16 @@ export default function DashboardOverviewPage() {
               ) : null}
               {recentThreats.map((threat) => (
                 <tr key={threat.id} className="border-t bg-white transition hover:bg-muted/60">
-                  <td className="px-5 py-3 text-app-base font-medium text-foreground">{threat.host_domain}</td>
-                  <td className="px-5 py-3 font-mono text-app-xs text-muted-foreground">{threat.infringing_url}</td>
+                  <td className="px-5 py-3 text-app-base font-medium text-foreground">
+                    <Link href={`/dashboard/threats?asset=${threat.asset_id}`} className="hover:underline">
+                      {threat.host_domain}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3 font-mono text-app-xs text-muted-foreground">
+                    <a href={threat.infringing_url} target="_blank" rel="noreferrer" className="hover:text-foreground hover:underline">
+                      {threat.infringing_url}
+                    </a>
+                  </td>
                   <td className="px-5 py-3 font-mono text-app-sm text-foreground">{similarityPercent(threat.similarity_score)}%</td>
                   <td className="px-5 py-3">
                     <StatusBadge status={normalizeThreatStatus(threat.status)} />

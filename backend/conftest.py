@@ -20,6 +20,7 @@ os.environ.setdefault("STRIPE_STARTER_PRICE_ID", "price_starter_test")
 os.environ.setdefault("STRIPE_GROWTH_PRICE_ID", "price_growth_test")
 os.environ.setdefault("ADMIN_EMAILS", "admin@test.com")
 os.environ.setdefault("OPENAI_API_KEY", "sk-test")
+os.environ.setdefault("STRIPE_WEBHOOK_ALLOW_UNSIGNED", "true")
 
 
 CLIENT_A = str(uuid.uuid4())

@@ -15,13 +15,13 @@ def test_prometheus_metrics_endpoint():
     assert "sniperip_http_requests_total" in resp.text
 
 
-def test_prometheus_metrics_requires_auth_in_production():
+def test_prometheus_metrics_requires_auth_outside_development():
     from app.main import app
 
     client = TestClient(app)
     with patch("app.api.prometheus.get_settings") as mock_settings:
         mock_settings.return_value.prometheus_enabled = True
-        mock_settings.return_value.environment = "production"
+        mock_settings.return_value.environment = "staging"
         mock_settings.return_value.metrics_auth_token = ""
         resp = client.get("/api/metrics")
     assert resp.status_code == 401

@@ -15,8 +15,8 @@ def _authorize_metrics(request: Request) -> Response | None:
         if auth != f"Bearer {token}":
             return Response(status_code=401, content="Unauthorized")
         return None
-    if settings.environment == "production":
-        return Response(status_code=401, content="METRICS_AUTH_TOKEN required in production")
+    if settings.environment != "development":
+        return Response(status_code=401, content="METRICS_AUTH_TOKEN required outside development")
     return None
 
 

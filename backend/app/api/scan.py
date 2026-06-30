@@ -15,7 +15,7 @@ import resend
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from PIL import Image as PILImage, ImageFilter
 
-from app.core.limiter import limiter
+from app.core.limiter import get_real_ip, limiter
 
 from app.celery_app import celery_app
 from app.core.config import get_settings

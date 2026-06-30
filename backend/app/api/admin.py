@@ -2,9 +2,10 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.database import get_supabase_client
+from app.core.limiter import limiter
 from app.models.schemas import AdminMetrics, AdoptResearchJobRequest, CostMetrics, DLQEntry
 from app.workers.takedown import queue_takedown
 from app.api.deps import get_admin_user
@@ -177,7 +178,8 @@ async def get_research_queue_status(_admin: str = Depends(get_admin_user)):
 
 
 @router.post("/research/seed")
-async def seed_pipeline_research(_admin: str = Depends(get_admin_user)):
+@limiter.limit("10/hour")
+async def seed_pipeline_research(request: Request, _admin: str = Depends(get_admin_user)):
     """Seed default pipeline research topics (skips completed)."""
     from app.workers.research import seed_research_queue
 
@@ -186,7 +188,8 @@ async def seed_pipeline_research(_admin: str = Depends(get_admin_user)):
 
 
 @router.post("/research/tick")
-async def trigger_research_tick(_admin: str = Depends(get_admin_user)):
+@limiter.limit("60/hour")
+async def trigger_research_tick(request: Request, _admin: str = Depends(get_admin_user)):
     """Manually run one research poll/apply tick."""
     from app.workers.research import research_queue_tick
 
@@ -195,7 +198,12 @@ async def trigger_research_tick(_admin: str = Depends(get_admin_user)):
 
 
 @router.post("/research/adopt")
-async def adopt_research_job(body: AdoptResearchJobRequest, _admin: str = Depends(get_admin_user)):
+@limiter.limit("20/hour")
+async def adopt_research_job(
+    request: Request,
+    body: AdoptResearchJobRequest,
+    _admin: str = Depends(get_admin_user),
+):
     """Adopt an externally submitted AI-Q job into the pipeline tracker."""
     from app.services.research_queue import TOPICS_BY_KEY, adopt_external_job
 

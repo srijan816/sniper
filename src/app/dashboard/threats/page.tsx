@@ -65,6 +65,7 @@ export default function ThreatInboxPage() {
   const [threats, setThreats] = useState<Threat[]>([]);
   const [assets, setAssets] = useState<Record<string, Asset>>({});
   const [activeFilter, setActiveFilter] = useState<(typeof filters)[number]["key"]>("ALL");
+  const [assetFilter, setAssetFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedThreat, setSelectedThreat] = useState<Threat | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -72,6 +73,14 @@ export default function ThreatInboxPage() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missingContactInfo, setMissingContactInfo] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const assetId = params.get("asset");
+    if (assetId) {
+      setAssetFilter(assetId);
+    }
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -101,6 +110,7 @@ export default function ThreatInboxPage() {
     return threats.filter((threat) => {
       const displayStatus = threatStatusForDisplay(threat.status);
       const statusMatch = activeFilter === "ALL" || displayStatus === activeFilter;
+      const assetMatch = !assetFilter || threat.asset_id === assetFilter;
       const term = query.trim().toLowerCase();
       const assetName = assets[threat.asset_id]?.original_filename || threat.asset_id;
       const queryMatch =
@@ -108,9 +118,9 @@ export default function ThreatInboxPage() {
         threat.host_domain.toLowerCase().includes(term) ||
         threat.infringing_url.toLowerCase().includes(term) ||
         assetName.toLowerCase().includes(term);
-      return statusMatch && queryMatch;
+      return statusMatch && assetMatch && queryMatch;
     });
-  }, [threats, activeFilter, query, assets]);
+  }, [threats, activeFilter, assetFilter, query, assets]);
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -189,6 +199,25 @@ export default function ThreatInboxPage() {
         </div>
       ) : null}
 
+      {assetFilter ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-sniper-green/30 bg-sniper-green/5 px-4 py-3 text-app-sm">
+          <span>
+            Showing threats for asset{" "}
+            <strong>{assets[assetFilter]?.original_filename || assetFilter}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setAssetFilter(null);
+              window.history.replaceState({}, "", "/dashboard/threats");
+            }}
+            className="font-medium text-[#0A7C2E] underline hover:no-underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : null}
+
       <section className="space-y-4 rounded-md border bg-card p-4 shadow-sniper-sm">
         <div className="flex flex-wrap gap-2">
           {filters.map((filter) => {
@@ -241,7 +270,7 @@ export default function ThreatInboxPage() {
               {!loading && filtered.length === 0 ? (
                 <tr className="border-t bg-white">
                   <td colSpan={6} className="px-4 py-10 text-center text-app-sm text-muted-foreground">
-                    No threats available yet.
+                    {assetFilter ? "No threats found for this asset." : "No threats available yet."}
                   </td>
                 </tr>
               ) : null}
@@ -409,6 +438,10 @@ export default function ThreatInboxPage() {
                 <div className="grid grid-cols-[120px_1fr] gap-2 text-app-sm">
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Status</p>
                   <StatusBadge status={threatStatusForDisplay(selectedThreat.status)} className="w-fit" />
+                  <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Similarity</p>
+                  <p className={cn("font-mono font-semibold", scoreText(similarityPercent(selectedThreat.similarity_score)))}>
+                    {similarityPercent(selectedThreat.similarity_score)}% match
+                  </p>
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Threat ID</p>
                   <p className="font-mono">{selectedThreat.id}</p>
                   <p className="text-app-xs uppercase tracking-wider text-muted-foreground">Infringing URL</p>
@@ -441,23 +474,36 @@ export default function ThreatInboxPage() {
             </div>
 
             <div className="sticky bottom-0 border-t bg-white px-5 py-4">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => void approveThreat(selectedThreat.id)}
-                  className="inline-flex items-center justify-center gap-2 rounded-md bg-sniper-green px-3 py-2 font-heading text-app-sm font-bold text-sniper-charcoal"
-                >
-                  Approve Takedown
-                  <SniperChevron className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void whitelistThreat(selectedThreat.id)}
-                  className="rounded-md border px-3 py-2 text-app-sm text-muted-foreground"
-                >
-                  Whitelist Domain
-                </button>
-              </div>
+              {(() => {
+                const detailStatus = threatStatusForDisplay(selectedThreat.status);
+                const terminal = detailStatus === "REMOVED" || detailStatus === "WHITELISTED" || detailStatus === "REJECTED";
+                if (terminal) {
+                  return (
+                    <p className="text-center text-app-sm text-muted-foreground">
+                      This threat is closed — no further action required.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void approveThreat(selectedThreat.id)}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-sniper-green px-3 py-2 font-heading text-app-sm font-bold text-sniper-charcoal"
+                    >
+                      Approve Takedown
+                      <SniperChevron className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void whitelistThreat(selectedThreat.id)}
+                      className="rounded-md border px-3 py-2 text-app-sm text-muted-foreground"
+                    >
+                      Whitelist Domain
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </aside>
         </div>
