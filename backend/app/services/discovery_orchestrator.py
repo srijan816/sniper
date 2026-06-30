@@ -13,6 +13,7 @@ from app.services.searxng_service import (
     search_searxng_images,
     search_searxng_marketplaces,
 )
+from app.services.ebay_service import search_ebay, search_ebay_by_image
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,18 @@ def search_bing_reverse_image(image_url: str) -> List[DiscoveryCandidate]:
     return candidates
 
 
+def _download_image(url: str, *, max_bytes: int = 8_000_000) -> bytes | None:
+    try:
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.content
+            return data if data and len(data) <= max_bytes else None
+    except Exception as exc:
+        logger.warning("image download failed (%s): %s", url, exc)
+        return None
+
+
 def _parse_price(value) -> float | None:
     if value is None:
         return None
@@ -161,5 +174,16 @@ def discover_candidates_for_asset(
                 all_candidates.extend(search_searxng_marketplaces(query, marketplaces))
         except Exception as exc:
             logger.warning("SearXNG discovery failed: %s", exc)
+
+    # --- eBay Browse API (free official marketplace source; needs credentials) ---
+    if settings.discovery_enable_ebay and settings.ebay_client_id and settings.ebay_client_secret:
+        try:
+            if query:
+                all_candidates.extend(search_ebay(query))
+            img_bytes = _download_image(image_url)
+            if img_bytes:
+                all_candidates.extend(search_ebay_by_image(img_bytes))
+        except Exception as exc:
+            logger.warning("eBay discovery failed: %s", exc)
 
     return filter_whitelisted(_dedupe_candidates(all_candidates), whitelist_domains)

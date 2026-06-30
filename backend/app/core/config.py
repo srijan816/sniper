@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     # Marketplaces to target via `site:` web search (comma-separated hosts)
     discovery_marketplaces: str = "ebay.com,aliexpress.com,etsy.com,walmart.com,dhgate.com,poshmark.com"
 
+    # eBay Browse API (free official marketplace discovery; App ID / Cert ID)
+    ebay_client_id: str = ""
+    ebay_client_secret: str = ""
+    ebay_marketplace_id: str = "EBAY_US"
+    ebay_oauth_base: str = "https://api.ebay.com"
+    ebay_browse_base: str = "https://api.ebay.com/buy/browse/v1"
+    discovery_enable_ebay: bool = True  # only runs when credentials are set
+
     # Resend
     resend_api_key: str = ""
 

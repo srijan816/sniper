@@ -23,8 +23,6 @@ services:
     restart: unless-stopped
     networks:
       - internal
-      - sb_shared
-      - app2_deep_research_net
 
   api:
     build:
@@ -202,8 +200,6 @@ services:
     restart: unless-stopped
     networks:
       - internal
-      - sb_shared
-      - app2_deep_research_net
 
   caddy:
     image: caddy:2-alpine
@@ -225,8 +221,6 @@ services:
     restart: unless-stopped
     networks:
       - internal
-      - sb_shared
-      - app2_deep_research_net
 
 networks:
   internal:

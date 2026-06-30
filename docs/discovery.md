@@ -15,8 +15,21 @@ need to do visual matching itself.
    `discovery_enable_searxng=true`. Lanes:
    - image search (`categories=images`, `bing images`) → visual candidates,
    - marketplace `site:<host>` web search (Bing) across `discovery_marketplaces`.
+3. **eBay Browse API** (`services/ebay_service.py`) — **free, official**. Runs when
+   `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` are set. Lanes: `searchByImage` (the
+   protected photo → eBay's own visual match) + keyword search. eBay is a major
+   counterfeit venue and pairs with eBay VeRO for takedowns.
 
 All candidates are then verified by the ensemble, so a low-precision feed is fine.
+
+## Public counterfeits wall
+
+`GET /api/counterfeits` (`app/api/counterfeits.py`, public, no auth) returns only
+**human-reviewed** threats (status in APPROVED / CONFIRMED / TAKEDOWN_* / REMOVED)
+— never raw automated discoveries — each pairing the original asset image with the
+infringing listing image + similarity. The Next.js page `/counterfeits`
+(`src/app/counterfeits/page.tsx`) renders them with a "suspected, automated,
+unverified" disclaimer. Empty until real reviewed matches exist.
 
 ## SearXNG reuse
 

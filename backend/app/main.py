@@ -56,6 +56,7 @@ from app.api.webhooks import router as webhooks_router
 from app.api.clients import router as clients_router
 from app.api.checkout import router as checkout_router
 from app.api.scan import router as scan_router
+from app.api.counterfeits import router as counterfeits_router
 from app.api.prometheus import router as prometheus_router
 
 
@@ -81,3 +82,4 @@ app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 app.include_router(webhooks_router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(checkout_router, prefix="/api/checkout", tags=["Checkout"])
 app.include_router(scan_router, prefix="/api/scan", tags=["Scan"])
+app.include_router(counterfeits_router, prefix="/api/counterfeits", tags=["Counterfeits"])
