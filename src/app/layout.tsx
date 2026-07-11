@@ -32,8 +32,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable}`}>
-      <body className="font-body antialiased bg-background text-foreground">{children}</body>
+    <html
+      lang="en"
+      className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable} bg-[#05070a]`}
+    >
+      <head>
+        {/* Preload the text-free still so first paint matches the final look */}
+        <link rel="preload" as="image" href="/under-construction/bg-still.jpg" />
+        <link rel="preload" as="video" href="/under-construction/bg.mp4" type="video/mp4" />
+      </head>
+      <body className="font-body antialiased bg-[#05070a] text-white">{children}</body>
     </html>
   );
 }

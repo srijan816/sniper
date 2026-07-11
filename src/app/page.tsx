@@ -1,29 +1,53 @@
-import type { Metadata } from "next";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 
-export const metadata: Metadata = {
-  title: "SniperIP — Site Under Construction",
-  description: "SniperIP is currently under construction. Check back soon.",
-  robots: { index: false, follow: false },
-};
+type Stage = "boot" | "ready";
 
 export default function UnderConstructionPage() {
+  const [stage, setStage] = useState<Stage>("boot");
+  const [videoReady, setVideoReady] = useState(false);
+
+  useEffect(() => {
+    // Paint solid shell first, then reveal content after the first frame
+    // so we never flash light theme / stacked poster text.
+    const id = window.requestAnimationFrame(() => setStage("ready"));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  const markVideoReady = useCallback(() => {
+    setVideoReady(true);
+  }, []);
+
   return (
     <div className="relative min-h-dvh overflow-hidden bg-[#05070a] text-white">
-      {/* Background video */}
+      {/* Instant text-free still so first paint matches the final look */}
+      <div
+        className="absolute inset-0 bg-[#05070a] bg-cover bg-center"
+        style={{ backgroundImage: "url(/under-construction/bg-still.jpg)" }}
+        aria-hidden
+      />
+
+      {/* Video fades in over the still once it can play — never carries text */}
       <video
-        className="absolute inset-0 h-full w-full object-cover"
+        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ease-out ${
+          videoReady ? "opacity-100" : "opacity-0"
+        }`}
         autoPlay
         muted
         loop
         playsInline
-        poster="/under-construction/poster.jpg"
+        preload="auto"
+        onCanPlay={markVideoReady}
+        onLoadedData={markVideoReady}
+        onPlaying={markVideoReady}
         aria-hidden
       >
         <source src="/under-construction/bg.mp4" type="video/mp4" />
       </video>
 
-      {/* Atmospheric overlays */}
+      {/* Atmospheric overlays — always present, same final look from frame 1 */}
       <div
         className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/55 via-black/35 to-black/70"
         aria-hidden
@@ -37,8 +61,14 @@ export default function UnderConstructionPage() {
         aria-hidden
       />
 
-      {/* Content */}
-      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+      {/* Single source of truth for copy — only HTML, never baked into poster */}
+      <main
+        className={`relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center transition-all duration-700 ease-out ${
+          stage === "ready"
+            ? "translate-y-0 opacity-100"
+            : "translate-y-2 opacity-0"
+        }`}
+      >
         <div className="mb-10 opacity-95">
           <Image
             src="/logo-light.png"
