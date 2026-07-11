@@ -21,10 +21,9 @@ const monoFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SniperIP — Automated IP Protection for D2C Brands",
-  description:
-    "Discover, verify, and execute DMCA takedowns against counterfeit e-commerce listings. Protect your brand with AI-powered IP enforcement.",
-  keywords: ["IP protection", "DMCA takedown", "brand protection", "counterfeit", "D2C"],
+  title: "SniperIP — Site Under Construction",
+  description: "SniperIP is currently under construction. Check back soon.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
