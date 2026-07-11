@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Supabase
     supabase_url: str = ""
+    # Browser-facing base used to build public storage URLs. When the backend
+    # talks to Supabase over an internal address (e.g. http://kong:8000), set
+    # this to the public origin (e.g. https://sniperip.com) so stored image
+    # URLs are loadable from the browser. Falls back to supabase_url when unset.
+    supabase_public_url: str = ""
     supabase_service_role_key: str = ""
     supabase_anon_key: str = ""
     supabase_db_url: str = ""
@@ -21,9 +26,25 @@ class Settings(BaseSettings):
     stripe_growth_price_id: str = ""
     stripe_agency_price_id: str = ""
 
-    # SerpApi
+    # SerpApi (optional paid discovery — leave blank to use free SearXNG instead)
     serpapi_key: str = ""
     serpapi_engine: str = "google_lens"
+
+    # SearXNG (free self-hosted discovery; reuses the shared app2 SearXNG)
+    searxng_url: str = "http://searxng:8080"
+    searxng_engines: str = "bing"            # web engines that work without a proxy
+    searxng_image_engines: str = "bing images"
+    discovery_enable_searxng: bool = True
+    # Marketplaces to target via `site:` web search (comma-separated hosts)
+    discovery_marketplaces: str = "ebay.com,aliexpress.com,etsy.com,walmart.com,dhgate.com,poshmark.com"
+
+    # eBay Browse API (free official marketplace discovery; App ID / Cert ID)
+    ebay_client_id: str = ""
+    ebay_client_secret: str = ""
+    ebay_marketplace_id: str = "EBAY_US"
+    ebay_oauth_base: str = "https://api.ebay.com"
+    ebay_browse_base: str = "https://api.ebay.com/buy/browse/v1"
+    discovery_enable_ebay: bool = True  # only runs when credentials are set
 
     # Resend
     resend_api_key: str = ""
@@ -44,18 +65,47 @@ class Settings(BaseSettings):
     # HuggingFace
     huggingface_api_token: str = ""
 
-    # OpenAI
+    # OpenAI (fallback embedding backend)
     openai_api_key: str = ""
-    huggingface_embedding_model: str = "google/siglip-base-patch16-224"
-    huggingface_embedding_backend: str = "endpoint"  # local | endpoint | shared | auto
+    huggingface_embedding_model: str = "google/siglip-so400m-patch14-384"
+    huggingface_embedding_backend: str = "auto"  # local | endpoint | shared | auto | openai
     huggingface_inference_endpoint_url: str = ""
     huggingface_inference_endpoint_token: str = ""
     huggingface_allow_shared_fallback: bool = True
+    huggingface_allow_openai_fallback: bool = False
     embedding_request_retries: int = 3
+    embedding_dimension: int = 1152
+    embedding_input_size: int = 384
+
+    # DINOv2 structural similarity (ensemble verification)
+    dinov2_enabled: bool = True
+    dinov2_model: str = "facebook/dinov2-large"
+    dinov2_backend: str = "shared"  # shared | local
+
+    # MiniMax M3 (threat explanations, intelligence)
+    minimax_api_key: str = ""
+    minimax_model: str = "MiniMax-M3"
+
+    # AI-Q deep research (pipeline intelligence)
+    aiq_base_url: str = "https://app2.sniperip.com"
+    aiq_api_token: str = ""
+    research_poll_interval_seconds: int = 120
+    # Path for the Redis-fallback research queue state (written 0600). Empty =>
+    # default next to the backend package.
+    research_queue_state_path: str = ""
+
+    # Verification ensemble weights — research-backed (AI-Q vision-ensemble report)
+    similarity_weight_siglip: float = 0.55
+    similarity_weight_dinov2: float = 0.40
+    similarity_weight_phash: float = 0.05
 
     # Verification
-    similarity_threshold: float = 0.95
+    similarity_threshold: float = 0.90
     phash_distance_threshold: int = 6
+
+    # Discovery sources
+    discovery_enable_shopping_search: bool = True
+    discovery_enable_bing_reverse: bool = True
 
     # Automation
     two_captcha_api_key: str = ""
@@ -89,6 +139,18 @@ class Settings(BaseSettings):
     backend_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:3000"
     admin_emails: str = "admin@sniperip.com"
+    cors_origins: str = "http://localhost:3000,https://sniperip.com"
+    public_host: str = ""
+    environment: str = "development"  # development | staging | production
+    app_version: str = "1.0.0"
+
+    # Observability
+    log_level: str = "INFO"
+    log_json: bool = False
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.1
+    prometheus_enabled: bool = True
+    metrics_auth_token: str = ""
 
     # Tier limits
     starter_threat_limit: int = 50
@@ -97,6 +159,12 @@ class Settings(BaseSettings):
 
     # Test Mode
     takedown_test_mode_no_submit: bool = False
+
+    # Discovery performance — skip full DINOv2 ensemble when quick score is far below threshold
+    discovery_fast_reject_margin: float = 0.12
+
+    # Stripe — only allow unsigned webhooks when explicitly enabled (local dev)
+    stripe_webhook_allow_unsigned: bool = False
 
     model_config = SettingsConfigDict(
         env_file="../.env",

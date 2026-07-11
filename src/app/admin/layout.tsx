@@ -3,11 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertOctagon, ArrowLeft, BarChart2, DollarSign } from "lucide-react";
+import { AlertOctagon, ArrowLeft, BarChart2, DollarSign, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/admin", label: "Overview", icon: BarChart2 },
+  { href: "/admin/counterfeits", label: "Counterfeits", icon: ShieldAlert },
   { href: "/admin/costs", label: "Cost Monitoring", icon: DollarSign },
   { href: "/admin/dlq", label: "Dead Letter Queue", icon: AlertOctagon },
 ];

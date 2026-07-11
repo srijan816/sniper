@@ -6,14 +6,15 @@ import uuid
 from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 from app.services.vector_store import get_asset_embedding, upsert_asset_embedding
 from app.services.vision import (
     compute_phash,
-    cosine_similarity,
     download_bytes,
     embedding_from_image_bytes,
     embedding_from_image_url,
     extract_video_frame_bytes,
+    expected_embedding_dimension,
 )
 
 
@@ -30,10 +31,7 @@ def _upload_thumbnail(asset_id: str, client_id: str, frame_bytes: bytes) -> str:
     path = f"{client_id}/{asset_id}-thumb.jpg"
     storage = _db().storage.from_(bucket)
     storage.upload(path, frame_bytes, {"content-type": "image/jpeg", "upsert": "true"})
-    public_url = storage.get_public_url(path)
-    if isinstance(public_url, dict):
-        return public_url.get("publicUrl") or public_url.get("public_url") or path
-    return str(public_url)
+    return storage_public_url(storage, path)
 
 
 def _fetch_asset(asset_id: str) -> dict:
@@ -68,7 +66,8 @@ def vectorize_asset_task(asset_id: str):
 
 def ensure_asset_vectorized(asset_id: str) -> list[float]:
     existing = get_asset_embedding(asset_id)
-    if existing:
+    expected_dim = expected_embedding_dimension()
+    if existing and len(existing) == expected_dim:
         return existing
     vectorize_asset_task(asset_id)
     created = get_asset_embedding(asset_id)
@@ -78,14 +77,33 @@ def ensure_asset_vectorized(asset_id: str) -> list[float]:
 
 
 def similarity_for_candidate(asset_id: str, candidate_image_url: str) -> float:
-    """Compute real cosine similarity between an asset vector and candidate image."""
-    asset_embedding = ensure_asset_vectorized(asset_id)
-    candidate_embedding = embedding_from_image_url(candidate_image_url)
-    return float(cosine_similarity(asset_embedding, candidate_embedding))
+    """Compute ensemble similarity between an asset and candidate image."""
+    from app.services.vector_store import get_asset_phash as _get_phash
+    from app.services.vision import combined_similarity, download_bytes
+
+    asset = _fetch_asset(asset_id)
+    source_url = asset.get("storage_url")
+    if not source_url:
+        raise RuntimeError(f"Asset {asset_id} has no storage_url.")
+    asset_bytes = download_bytes(source_url)
+    candidate_bytes = download_bytes(candidate_image_url)
+    ensure_asset_vectorized(asset_id)
+    asset_phash = _get_phash(asset_id)
+    breakdown = combined_similarity(asset_bytes, candidate_bytes, asset_phash=asset_phash)
+    return float(breakdown.combined)
 
 
 def similarity_for_candidate_bytes(asset_id: str, candidate_image_bytes: bytes) -> float:
-    """Compute cosine similarity using already-downloaded candidate image bytes."""
-    asset_embedding = ensure_asset_vectorized(asset_id)
-    candidate_embedding = embedding_from_image_bytes(candidate_image_bytes)
-    return float(cosine_similarity(asset_embedding, candidate_embedding))
+    """Compute ensemble similarity using already-downloaded candidate bytes."""
+    from app.services.vector_store import get_asset_phash as _get_phash
+    from app.services.vision import combined_similarity, download_bytes
+
+    asset = _fetch_asset(asset_id)
+    source_url = asset.get("storage_url")
+    if not source_url:
+        raise RuntimeError(f"Asset {asset_id} has no storage_url.")
+    asset_bytes = download_bytes(source_url)
+    ensure_asset_vectorized(asset_id)
+    asset_phash = _get_phash(asset_id)
+    breakdown = combined_similarity(asset_bytes, candidate_image_bytes, asset_phash=asset_phash)
+    return float(breakdown.combined)

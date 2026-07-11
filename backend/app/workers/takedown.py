@@ -28,6 +28,7 @@ except Exception:  # pragma: no cover - optional dependency at runtime
 from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import to_public_url
 from app.services.notification_service import send_generic_dmca_notice
 from app.workers.notifications import send_slack_alert, send_takedown_confirmation
 
@@ -378,8 +379,10 @@ def _extract_case_number(page_content: str) -> str | None:
 
 def _public_url(value) -> str:
     if isinstance(value, dict):
-        return value.get("publicUrl") or value.get("public_url") or ""
-    return str(value or "")
+        url = value.get("publicUrl") or value.get("public_url") or ""
+    else:
+        url = str(value or "")
+    return to_public_url(url)
 
 
 def _upload_storage_bytes(path: str, content: bytes, content_type: str, bucket_candidates: list[str]) -> str:

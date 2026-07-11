@@ -8,10 +8,13 @@ import uuid
 from typing import List
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, Depends
+
+from app.core.limiter import limiter
 
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 import hashlib
 import hmac
 import secrets
@@ -186,11 +189,7 @@ async def upload_loa_document(
         try:
             storage = _db().storage.from_(candidate_bucket)
             storage.upload(path, data, {"content-type": file.content_type or "application/pdf", "upsert": "true"})
-            public_url = storage.get_public_url(path)
-            if isinstance(public_url, dict):
-                loa_document_url = public_url.get("publicUrl") or public_url.get("public_url") or path
-            else:
-                loa_document_url = str(public_url)
+            loa_document_url = storage_public_url(storage, path)
             break
         except Exception as exc:
             last_error = exc
@@ -494,3 +493,51 @@ async def test_notification(client_id: str = Depends(get_current_client_id)):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to send test notification: {exc}") from exc
+
+
+# Backward-compatible aliases for older frontend paths
+@router.get("/{client_id}/notification-settings", response_model=NotificationSettingsResponse, include_in_schema=False)
+async def get_notification_settings_legacy(client_id: str = Depends(get_current_client_id)):
+    return await get_notification_settings(client_id)
+
+
+@router.patch("/{client_id}/notification-settings", response_model=NotificationSettingsResponse, include_in_schema=False)
+async def patch_notification_settings_legacy(data: NotificationSettingsUpdate, client_id: str = Depends(get_current_client_id)):
+    return await update_notification_settings(data, client_id)
+
+
+@router.post("/{client_id}/notification-settings/test", include_in_schema=False)
+async def test_notification_legacy(client_id: str = Depends(get_current_client_id)):
+    return await test_notification(client_id)
+
+
+@router.post("/{client_id}/research-brand")
+@limiter.limit("3/day")
+async def trigger_brand_research(
+    request: Request,
+    client_id: str = Depends(get_current_client_id),
+    product_category: str = "consumer goods",
+):
+    """
+    Queue AI-Q deep research for this brand (one job at a time — do not spam).
+    Results stored on client.brand_research when complete.
+    """
+    from app.workers.research import run_brand_research
+
+    rows = (
+        _db()
+        .table("clients")
+        .select("id,brand_research")
+        .eq("id", client_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if rows[0].get("brand_research"):
+        return {"status": "skipped", "message": "Brand research already completed for this client"}
+
+    task = run_brand_research.delay(client_id, product_category)
+    return {"status": "queued", "task_id": task.id, "message": "Brand research queued (runs sequentially via AI-Q)"}

@@ -28,6 +28,7 @@ const operationsItems = [
   { href: "/dashboard/threats", label: "Threat Inbox", icon: Target },
   { href: "/dashboard/assets", label: "Assets", icon: ImageIcon },
   { href: "/dashboard/takedowns", label: "Takedowns", icon: Send },
+  { href: "/dashboard/analytics", label: "Analytics", icon: Search },
   { href: "/dashboard/audit", label: "Audit Log", icon: FileText },
 ];
 
@@ -44,6 +45,7 @@ const crumbLabels: Record<string, string> = {
   assets: "Assets",
   takedowns: "Takedowns",
   audit: "Audit Log",
+  analytics: "Analytics",
   brand: "Brand Profile",
   whitelist: "Whitelist",
   billing: "Billing",

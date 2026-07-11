@@ -10,11 +10,12 @@ from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
 from app.services.blacklist_store import BadActorSignals, is_known_bad_actor, record_bad_actor
+from app.services.discovery_orchestrator import discover_candidates_for_asset
 from app.services.listing_intel import fetch_listing_intel
-from app.services.serpapi_service import filter_whitelisted, search_google_lens
+from app.services.threat_intelligence import enrich_threat_with_explanation
 from app.services.threat_store import create_or_get_discovered_threat
-from app.services.vector_store import find_similar_assets
-from app.services.vision import embedding_from_image_url
+from app.services.vector_store import get_asset_embedding, get_asset_phash
+from app.services.vision import asset_image_source_url, download_bytes, score_candidate_match
 from app.workers.notifications import send_upgrade_email
 from app.workers.vectorize import ensure_asset_vectorized
 
@@ -185,11 +186,23 @@ def run_discovery_for_client(client_id: str):
             break
         asset_id = asset["id"]
         ensure_asset_vectorized(asset_id)
-        source_url = asset.get("thumbnail_url") if (asset.get("asset_type") or "").upper() == "VIDEO" else asset.get("storage_url")
+        source_url = asset_image_source_url(asset)
         if not source_url:
             continue
 
-        candidates = filter_whitelisted(search_google_lens(source_url), whitelist)
+        asset_siglip = get_asset_embedding(asset_id)
+        asset_phash = get_asset_phash(asset_id)
+        if not asset_siglip:
+            continue
+
+        candidates = discover_candidates_for_asset(
+            image_url=source_url,
+            brand_name=client.get("company_name"),
+            product_title=asset.get("original_filename"),
+            whitelist_domains=whitelist,
+            enable_shopping=settings.discovery_enable_shopping_search,
+            enable_bing=settings.discovery_enable_bing_reverse,
+        )
         for candidate in candidates:
             if current + created >= limit:
                 break
@@ -207,24 +220,28 @@ def run_discovery_for_client(client_id: str):
             )
             blacklist_hit = _safe_known_bad_actor(actor_signals)
 
-            candidate_embedding = embedding_from_image_url(candidate.image_url)
-            matches = find_similar_assets(candidate_embedding, client_id=client_id, limit=1)
-            if not matches:
+            try:
+                candidate_bytes = download_bytes(candidate.image_url)
+            except Exception:
                 continue
-            best = matches[0]
-            if best.asset_id != asset_id:
-                continue
+
+            breakdown = score_candidate_match(
+                candidate_bytes,
+                asset_phash=asset_phash,
+                asset_siglip=asset_siglip,
+                asset_source_url=source_url,
+            )
+            stored_similarity = breakdown.combined
 
             threshold = settings.similarity_threshold - 0.07 if blacklist_hit else settings.similarity_threshold
             threshold = max(0.80, threshold)
-            if best.similarity < threshold:
+            if stored_similarity < threshold:
                 continue
 
-            stored_similarity = best.similarity
             if blacklist_hit and stored_similarity < settings.similarity_threshold:
                 stored_similarity = settings.similarity_threshold + 0.01
 
-            _, created_now = _create_threat(
+            threat_id, created_now = _create_threat(
                 asset_id=asset_id,
                 infringing_url=candidate.listing_url,
                 host_domain=_host(candidate.listing_url),
@@ -232,7 +249,19 @@ def run_discovery_for_client(client_id: str):
                 client_id=client_id,
             )
             _safe_record_bad_actor(actor_signals)
+
             if created_now:
+                enrich_threat_with_explanation(
+                    threat_id,
+                    asset_name=asset.get("original_filename") or "Protected asset",
+                    infringing_url=candidate.listing_url,
+                    host_domain=_host(candidate.listing_url),
+                    similarity_score=stored_similarity,
+                    siglip_score=breakdown.siglip,
+                    dinov2_score=breakdown.dinov2,
+                    phash_distance=breakdown.phash_distance,
+                    listing_price=candidate.listing_price,
+                )
                 created += 1
 
     if created:

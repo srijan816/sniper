@@ -42,6 +42,8 @@ async def health_check():
     redis_probe = _probe_redis()
     supabase_probe = _probe_supabase()
 
+    research_probe = _probe_research()
+
     all_ok = redis_probe["status"] == "ok" and supabase_probe["status"] == "ok"
     return {
         "status": "ok" if all_ok else "degraded",
@@ -50,5 +52,23 @@ async def health_check():
         "dependencies": {
             "redis": redis_probe,
             "supabase": supabase_probe,
+            "research_queue": research_probe,
         },
     }
+
+
+def _probe_research() -> dict:
+    try:
+        from app.services.research_queue import queue_status
+
+        status = queue_status()
+        active = status.get("active")
+        return {
+            "status": "ok",
+            "active_topic": (active or {}).get("topic_key"),
+            "active_job_id": (active or {}).get("aiq_job_id"),
+            "queued_count": status.get("queue_length", 0),
+            "completed_count": len(status.get("completed") or {}),
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}

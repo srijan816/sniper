@@ -1,0 +1,240 @@
+# SniperIP production stack — Oracle / bare-metal ready.
+#
+# First deploy:
+#   cp deploy/env.oracle.example .env   # fill in secrets
+#   ./scripts/deploy-oracle.sh
+#
+# Updates after git pull:
+#   ./scripts/deploy-oracle.sh
+
+name: sniperip
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      PROMETHEUS_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips="*"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  worker-discovery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q discovery -c 2 --hostname=discovery@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d discovery@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  worker-vectorize:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q vectorize -c 1 --hostname=vectorize@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d vectorize@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  worker-takedown:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q takedown -c 1 --hostname=takedown@%h
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d takedown@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  worker-default:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app worker --loglevel=info -Q notifications,default -c 2 --hostname=default@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d default@$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app beat --loglevel=info
+    # beat is a scheduler, not a pingable worker; disable the image's HTTP
+    # healthcheck (relies on restart: unless-stopped for liveness).
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    networks:
+      - internal
+      - sb_shared
+      - app2_deep_research_net
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    # On hosts that already run a system reverse proxy (nginx) on 80/443,
+    # bind Caddy to a local-only port and let the host proxy front it.
+    # For a fresh box that should own 80/443 directly, set in .env:
+    #   CADDY_BIND=80:80   (and add a second mapping 443:443 if using Caddy TLS)
+    ports:
+      - "${CADDY_BIND:-127.0.0.1:21080:80}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-140.245.107.78}
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+  # Shared with the self-hosted Supabase stack (~/supabase) so the API,
+  # workers, beat and web can reach kong (Supabase gateway) and db by name.
+  sb_shared:
+    external: true
+  # Shared with the app2 deep-research stack so discovery can reach its
+  # self-hosted SearXNG (searxng:8080) for free candidate sourcing.
+  app2_deep_research_net:
+    external: true
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:

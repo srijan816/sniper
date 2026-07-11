@@ -57,6 +57,26 @@ For hardened verification/RPA, set:
 - Meta/Amazon/Playwright proxy env vars when those integrations are enabled
 - `DISCOVERY_TICK_INTERVAL_SECONDS=900` for staggered radar scans
 
+## Production (Oracle Cloud / Docker)
+
+Full-stack deploy with Caddy reverse proxy, Next.js frontend, FastAPI, Celery workers, and Redis:
+
+The repo lives in `~/sniper` (`/home/ubuntu/sniper`). On a host that already
+runs a system reverse proxy (nginx) on 80/443, Caddy binds a local port
+(`127.0.0.1:21080` by default — see `CADDY_BIND`) and the host proxy fronts it.
+
+```bash
+# First time on a fresh VM
+sudo ./scripts/bootstrap-oracle.sh   # installs Docker, clones to ~/sniper
+nano ~/sniper/.env                   # fill secrets from deploy/env.oracle.example
+cd ~/sniper && ./scripts/deploy-oracle.sh
+
+# After git pull
+cd ~/sniper && ./scripts/deploy-oracle.sh
+```
+
+See [deploy/README.md](deploy/README.md) for networking, HTTPS, and troubleshooting.
+
 ## Database Migration
 
 Apply the hardening SQL before enabling workers:

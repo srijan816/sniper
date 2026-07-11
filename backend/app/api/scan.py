@@ -1,6 +1,4 @@
 """Free scan PLG endpoint — public, rate-limited, lead-capture."""
-from __future__ import annotations
-
 import base64
 import hashlib
 import logging
@@ -16,23 +14,19 @@ import numpy as np
 import resend
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from PIL import Image as PILImage, ImageFilter
-from slowapi import Limiter
+
+from app.core.limiter import get_real_ip, limiter
 
 from app.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 from app.services.serpapi_service import search_google_lens
 from app.services.vision import embedding_from_image_bytes
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Import the shared real-IP extractor so the per-route limit uses the same
-# key function as the global limiter (proxy-aware).
-from app.main import get_real_ip  # noqa: E402 — circular-safe at import time
-limiter = Limiter(key_func=get_real_ip)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -106,10 +100,7 @@ def _upload_scan_to_storage(db, file_bytes: bytes, scan_id: str, content_type: s
     path = f"scans/{scan_id}.jpg"
     storage = db.storage.from_(bucket)
     storage.upload(path, file_bytes, {"content-type": content_type, "upsert": "true"})
-    public_url = storage.get_public_url(path)
-    if isinstance(public_url, dict):
-        return public_url.get("publicUrl") or public_url.get("public_url") or path
-    return str(public_url)
+    return storage_public_url(storage, path)
 
 
 def _extract_host(url: str) -> str:
@@ -187,7 +178,7 @@ async def free_scan(
         phash_value = hashlib.sha256(file_bytes).hexdigest()[:16]
 
     # 4. Determine requester IP
-    ip_address = get_remote_address(request)
+    ip_address = get_real_ip(request)
 
     # 5. Store lead record
     scan_id = str(uuid.uuid4())

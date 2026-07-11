@@ -1,0 +1,49 @@
+# Caddy reverse proxy for SniperIP production.
+# Routes /api/* to FastAPI and everything else to Next.js.
+#
+# Set PUBLIC_HOST in .env (IP or domain). Default: 140.245.107.78
+
+{
+	admin off
+}
+
+:80 {
+	encode gzip zstd
+
+	# Use dynamic A-record upstreams resolved via Docker's embedded DNS
+	# (127.0.0.11) so Caddy re-resolves api/web on every refresh. Without this,
+	# Caddy caches the container IP at startup and 404s/502s after any redeploy
+	# that recreates the api/web containers (giving them new IPs).
+	handle /api/* {
+		reverse_proxy {
+			dynamic a {
+				name api
+				port 8000
+				refresh 5s
+				resolvers 127.0.0.11
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy {
+			dynamic a {
+				name web
+				port 3000
+				refresh 5s
+				resolvers 127.0.0.11
+			}
+		}
+	}
+}
+
+# Uncomment and set PUBLIC_HOST to your domain once DNS points here:
+# {$PUBLIC_HOST} {
+# 	encode gzip zstd
+# 	handle /api/* {
+# 		reverse_proxy api:8000
+# 	}
+# 	handle {
+# 		reverse_proxy web:3000
+# 	}
+# }

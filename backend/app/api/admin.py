@@ -2,10 +2,11 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.database import get_supabase_client
-from app.models.schemas import AdminMetrics, CostMetrics, DLQEntry
+from app.core.limiter import limiter
+from app.models.schemas import AdminMetrics, AdoptResearchJobRequest, CostMetrics, DLQEntry
 from app.workers.takedown import queue_takedown
 from app.api.deps import get_admin_user
 
@@ -166,3 +167,55 @@ async def dismiss_dlq_entry(dlq_id: str, _admin: str = Depends(get_admin_user)):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to dismiss DLQ entry: {exc}") from exc
+
+
+@router.get("/research")
+async def get_research_queue_status(_admin: str = Depends(get_admin_user)):
+    """Pipeline research queue status (AI-Q sequential jobs)."""
+    from app.services.research_queue import queue_status
+
+    return queue_status()
+
+
+@router.post("/research/seed")
+@limiter.limit("10/hour")
+async def seed_pipeline_research(request: Request, _admin: str = Depends(get_admin_user)):
+    """Seed default pipeline research topics (skips completed)."""
+    from app.workers.research import seed_research_queue
+
+    result = seed_research_queue.delay()
+    return {"status": "queued", "task_id": result.id}
+
+
+@router.post("/research/tick")
+@limiter.limit("60/hour")
+async def trigger_research_tick(request: Request, _admin: str = Depends(get_admin_user)):
+    """Manually run one research poll/apply tick."""
+    from app.workers.research import research_queue_tick
+
+    result = research_queue_tick.delay()
+    return {"status": "queued", "task_id": result.id}
+
+
+@router.post("/research/adopt")
+@limiter.limit("20/hour")
+async def adopt_research_job(
+    request: Request,
+    body: AdoptResearchJobRequest,
+    _admin: str = Depends(get_admin_user),
+):
+    """Adopt an externally submitted AI-Q job into the pipeline tracker."""
+    from app.services.research_queue import TOPICS_BY_KEY, adopt_external_job
+
+    if body.topic_key not in TOPICS_BY_KEY:
+        raise HTTPException(status_code=400, detail=f"Unknown topic_key: {body.topic_key}")
+    try:
+        payload = adopt_external_job(body.topic_key, body.job_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "adopted",
+        "topic_key": body.topic_key,
+        "job_id": body.job_id,
+        "active": payload,
+    }

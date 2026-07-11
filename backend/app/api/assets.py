@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 
 from app.core.database import get_supabase_client
+from app.services.storage_util import public_url as storage_public_url
 from app.models.schemas import AssetResponse
 from app.workers.vectorize import vectorize_asset_task
 from app.api.deps import get_current_client_id
@@ -55,10 +56,7 @@ def _try_storage_upload(file: UploadFile, asset_id: str, client_id: str) -> str:
 
     storage = _db().storage.from_(bucket)
     storage.upload(path, file_bytes, {"content-type": file.content_type or "application/octet-stream", "upsert": "true"})
-    public_url = storage.get_public_url(path)
-    if isinstance(public_url, dict):
-        return public_url.get("publicUrl") or public_url.get("public_url") or path
-    return str(public_url)
+    return storage_public_url(storage, path)
 
 
 @router.get("/", response_model=List[AssetResponse])
